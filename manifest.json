@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Usage Tracker",
+  "version": "1.0.0",
+  "description": "Track token usage, context window, and export conversations for Claude.",
+  "action": {
+    "default_title": "Claude Usage Tracker Options"
+  },
+  "options_ui": {
+    "page": "src/options/index.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["src/content/index.tsx"],
+      "css": ["src/content/index.css"]
+    }
+  ],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://api.anthropic.com/*"
+  ]
+}
