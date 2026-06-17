@@ -5,10 +5,12 @@ import { Exporter } from '../export';
 import OptionsApp from '../options/OptionsApp';
 
 const ContentApp: React.FC = () => {
-  const { tokens, isExact } = useTokenTracker();
+  const { tokens, isExact, contextLimit } = useTokenTracker();
   const [modalOpen, setModalOpen] = useState(false);
-  const CONTEXT_LIMIT = 200000;
-  const contextPercentage = (tokens.total / CONTEXT_LIMIT) * 100;
+  const contextPercentage = (tokens.total / contextLimit) * 100;
+  
+  // Estimate cost based on Claude 3 Opus pricing ($15/M input)
+  const estimatedCost = (tokens.total / 1000000) * 15;
 
   const handleExport = () => {
     const text = document.querySelector('.flex-1.overflow-hidden')?.textContent || document.body.textContent || '';
@@ -25,21 +27,24 @@ const ContentApp: React.FC = () => {
 
   return (
     <>
-      <div className="flex items-center gap-4 bg-transparent text-gray-400 px-1 py-0.5 rounded text-[11px] font-sans transition-all">
+      <div className="flex items-center gap-4 bg-[#1e1e2e]/90 backdrop-blur-md border border-white/10 text-gray-400 px-3 py-1.5 rounded-lg shadow-xl text-[11px] font-sans transition-all">
         
-        <div className="flex items-center gap-1.5">
-          <span className="font-semibold text-[9px] uppercase tracking-wider opacity-60">Context</span>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-[10px] uppercase tracking-wider text-gray-300">Context</span>
           {isExact ? (
-            <span className="bg-emerald-500/20 text-emerald-400 text-[8px] px-1 rounded flex items-center">Official</span>
+            <span className="bg-emerald-500/20 text-emerald-400 text-[9px] px-1.5 py-0.5 rounded flex items-center font-medium">Exact</span>
           ) : (
-            <span className="bg-amber-500/20 text-amber-400 text-[8px] px-1 rounded flex items-center">Estimated</span>
+            <span className="bg-amber-500/20 text-amber-400 text-[9px] px-1.5 py-0.5 rounded flex items-center font-medium">Estimated</span>
           )}
           
-          <div className="flex items-center gap-2 ml-1">
-            <span className="font-mono text-xs text-gray-200">{tokens.total.toLocaleString()}</span>
-            <div className="w-48 h-1.5 bg-gray-700/50 rounded-full overflow-hidden ml-1">
+          <div className="flex items-center gap-3 ml-1">
+            <div className="flex flex-col items-end">
+              <span className="font-mono text-xs text-white font-medium">{tokens.total.toLocaleString()} <span className="text-gray-500 text-[9px]">/ {contextLimit.toLocaleString()}</span></span>
+              <span className="font-mono text-[9px] text-emerald-400 opacity-80">${estimatedCost.toFixed(4)} est.</span>
+            </div>
+            <div className="w-32 h-2 bg-black/40 rounded-full overflow-hidden shadow-inner">
               <div 
-                className="h-full bg-indigo-500 rounded-full transition-all"
+                className={`h-full rounded-full transition-all duration-500 ${contextPercentage > 90 ? 'bg-red-500' : contextPercentage > 75 ? 'bg-amber-500' : 'bg-indigo-500'}`}
                 style={{ width: `${Math.min(contextPercentage, 100)}%` }}
               />
             </div>

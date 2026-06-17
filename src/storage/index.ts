@@ -3,6 +3,7 @@ import type { ExtensionState, UserSettings, DailyStats, Conversation } from '../
 const DEFAULT_SETTINGS: UserSettings = {
   anthropicApiKey: '',
   autoBackup: false,
+  claudePlan: 'Free',
 };
 
 export const StorageManager = {
