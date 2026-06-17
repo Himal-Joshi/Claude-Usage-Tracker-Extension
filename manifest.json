@@ -4,11 +4,12 @@
   "version": "1.0.0",
   "description": "Track token usage, context window, and export conversations for Claude.",
   "action": {
-    "default_title": "Claude Usage Tracker Options"
+    "default_title": "Claude Usage Tracker",
+    "default_popup": "src/options/index.html"
   },
   "options_ui": {
     "page": "src/options/index.html",
-    "open_in_tab": true
+    "open_in_tab": false
   },
   "background": {
     "service_worker": "src/background/index.ts",

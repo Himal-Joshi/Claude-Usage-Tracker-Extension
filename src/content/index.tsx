@@ -3,23 +3,42 @@ import { createRoot } from 'react-dom/client';
 import ContentApp from './ContentApp';
 import './index.css';
 
-function init() {
+function injectApp() {
+  if (document.getElementById('claude-usage-tracker-root')) return;
+
   const rootElement = document.createElement('div');
   rootElement.id = 'claude-usage-tracker-root';
   
   // Try to find the chat input container to append the bar near it
-  // For Claude.ai, the input area usually has specific classes, we'll append to body and use fixed positioning for now,
-  // or we can attach it to a specific parent once we observe the DOM.
+  const formElement = document.querySelector('fieldset') || document.querySelector('form');
   
-  document.body.appendChild(rootElement);
+  if (formElement && formElement.parentElement) {
+    // Inject just before the input area if possible
+    formElement.parentElement.insertBefore(rootElement, formElement);
+    rootElement.className = 'w-full flex justify-center mb-2 z-50';
+  } else {
+    // Fallback: fixed at bottom center
+    document.body.appendChild(rootElement);
+    rootElement.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[999999]';
+  }
 
   const root = createRoot(rootElement);
   root.render(<ContentApp />);
 }
 
-// Ensure the page is loaded
+// Observe the DOM to inject when the Claude UI is fully rendered
+const observer = new MutationObserver(() => {
+  if (document.querySelector('fieldset') || document.querySelector('form')) {
+    if (!document.getElementById('claude-usage-tracker-root')) {
+      injectApp();
+    }
+  }
+});
+
+observer.observe(document.body, { childList: true, subtree: true });
+
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
-  init();
+  injectApp();
 } else {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', injectApp);
 }

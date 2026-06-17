@@ -54,11 +54,11 @@ const ContentApp: React.FC = () => {
           <Download size={14} />
           <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-[10px] rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none">Export Chat</span>
         </button>
-        <button className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white group relative">
+        <button onClick={() => chrome.runtime.sendMessage({ action: "open_options", tab: "analytics" })} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white group relative">
           <BarChart2 size={14} />
           <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-[10px] rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none">Analytics</span>
         </button>
-        <button className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white group relative">
+        <button onClick={() => chrome.runtime.sendMessage({ action: "open_options", tab: "settings" })} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white group relative">
           <Settings size={14} />
           <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-[10px] rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none">Settings</span>
         </button>
