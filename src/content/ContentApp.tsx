@@ -25,9 +25,9 @@ const ContentApp: React.FC = () => {
 
   return (
     <>
-      <div className="flex items-center justify-between gap-4 bg-transparent text-gray-400 px-1 py-0.5 rounded text-[11px] font-sans transition-all w-full">
+      <div className="flex items-center gap-4 bg-transparent text-gray-400 px-1 py-0.5 rounded text-[11px] font-sans transition-all">
         
-        <div className="flex items-center gap-1.5 w-full mr-4">
+        <div className="flex items-center gap-1.5">
           <span className="font-semibold text-[9px] uppercase tracking-wider opacity-60">Context</span>
           {isExact ? (
             <span className="bg-emerald-500/20 text-emerald-400 text-[8px] px-1 rounded flex items-center">Official</span>
@@ -35,9 +35,9 @@ const ContentApp: React.FC = () => {
             <span className="bg-amber-500/20 text-amber-400 text-[8px] px-1 rounded flex items-center">Estimated</span>
           )}
           
-          <div className="flex items-center gap-1 ml-1 flex-1">
+          <div className="flex items-center gap-2 ml-1">
             <span className="font-mono text-xs text-gray-200">{tokens.total.toLocaleString()}</span>
-            <div className="w-12 h-1 bg-gray-700/50 rounded-full overflow-hidden ml-1">
+            <div className="w-48 h-1.5 bg-gray-700/50 rounded-full overflow-hidden ml-1">
               <div 
                 className="h-full bg-indigo-500 rounded-full transition-all"
                 style={{ width: `${Math.min(contextPercentage, 100)}%` }}
