@@ -25,9 +25,9 @@ const ContentApp: React.FC = () => {
 
   return (
     <>
-      <div className="flex items-center gap-2 bg-transparent text-gray-400 px-1 py-0.5 rounded text-[11px] font-sans transition-all w-full max-w-sm">
+      <div className="flex items-center justify-between gap-4 bg-transparent text-gray-400 px-1 py-0.5 rounded text-[11px] font-sans transition-all w-full">
         
-        <div className="flex items-center gap-1.5 flex-1">
+        <div className="flex items-center gap-1.5 w-full mr-4">
           <span className="font-semibold text-[9px] uppercase tracking-wider opacity-60">Context</span>
           {isExact ? (
             <span className="bg-emerald-500/20 text-emerald-400 text-[8px] px-1 rounded flex items-center">Official</span>

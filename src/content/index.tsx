@@ -16,8 +16,8 @@ function injectApp() {
     // Inject inside the fieldset, absolutely positioned in the bottom toolbar area
     formElement.style.position = 'relative';
     formElement.appendChild(rootElement);
-    // Position it to the right of the '+' button (approx left-14) and aligned vertically with the bottom row
-    rootElement.className = 'absolute bottom-2.5 left-14 z-50 scale-[0.85] origin-bottom-left';
+    // Position it between the '+' button (left-12) and the model selector (right-44)
+    rootElement.className = 'absolute bottom-3 left-[52px] right-[180px] z-50 flex items-center';
   } else {
     // Fallback: fixed at bottom center
     document.body.appendChild(rootElement);
