@@ -25,7 +25,7 @@ const ContentApp: React.FC = () => {
   };
 
   return (
-    <div className="flex items-center gap-4 bg-[#1e1e2e]/90 backdrop-blur-md text-gray-200 px-4 py-2 rounded-xl shadow-2xl border border-white/10 text-xs font-sans transition-all hover:bg-[#1e1e2e]">
+    <div className="flex items-center gap-3 bg-black/20 hover:bg-black/40 text-gray-200 px-3 py-1.5 rounded-lg border border-white/5 text-xs font-sans transition-all">
       
       <div className="flex flex-col">
         <div className="flex items-center gap-2 mb-0.5">

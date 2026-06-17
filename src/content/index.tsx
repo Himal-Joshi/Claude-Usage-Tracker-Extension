@@ -9,13 +9,15 @@ function injectApp() {
   const rootElement = document.createElement('div');
   rootElement.id = 'claude-usage-tracker-root';
   
-  // Try to find the chat input container to append the bar near it
-  const formElement = document.querySelector('fieldset') || document.querySelector('form');
+  // Try to find the chat input container (fieldset)
+  const formElement = document.querySelector('fieldset');
   
-  if (formElement && formElement.parentElement) {
-    // Inject just before the input area if possible
-    formElement.parentElement.insertBefore(rootElement, formElement);
-    rootElement.className = 'w-full flex justify-center mb-2 z-50';
+  if (formElement) {
+    // Inject inside the fieldset, absolutely positioned in the bottom toolbar area
+    formElement.style.position = 'relative';
+    formElement.appendChild(rootElement);
+    // Position it to the right of the '+' button (approx left-14) and aligned vertically with the bottom row
+    rootElement.className = 'absolute bottom-2.5 left-14 z-50 scale-[0.85] origin-bottom-left';
   } else {
     // Fallback: fixed at bottom center
     document.body.appendChild(rootElement);
