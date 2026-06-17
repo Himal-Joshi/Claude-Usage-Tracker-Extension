@@ -3,6 +3,11 @@
   "name": "Claude Usage Tracker",
   "version": "1.0.0",
   "description": "Track token usage, context window, and export conversations for Claude.",
+  "icons": {
+    "16": "public/icon.png",
+    "48": "public/icon.png",
+    "128": "public/icon.png"
+  },
   "action": {
     "default_title": "Claude Usage Tracker",
     "default_popup": "src/options/index.html"
