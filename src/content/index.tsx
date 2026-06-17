@@ -13,15 +13,15 @@ function injectApp() {
   const formElement = document.querySelector('fieldset');
   
   if (formElement) {
-    // Inject inside the fieldset, absolutely positioned in the bottom toolbar area
+    // Inject inside the fieldset, absolutely positioned in the bottom gap
     formElement.style.position = 'relative';
     formElement.appendChild(rootElement);
-    // Position it starting near the '+' button (left-12), let width be determined by content
-    rootElement.className = 'absolute bottom-3 left-[52px] z-50 flex items-center';
+    // Position it safely near the left side, past the + button
+    rootElement.className = 'absolute bottom-2.5 left-16 z-50 flex items-center bg-transparent pointer-events-auto';
   } else {
     // Fallback: fixed at bottom center
     document.body.appendChild(rootElement);
-    rootElement.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[999999]';
+    rootElement.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 z-[999999] flex items-center bg-transparent pointer-events-auto';
   }
 
   const root = createRoot(rootElement);
