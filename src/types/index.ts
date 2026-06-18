@@ -33,6 +33,7 @@ export interface DailyStats {
 
 export interface UserSettings {
   anthropicApiKey?: string;
+  rememberApiKey?: boolean;
   autoBackup?: boolean;
   claudePlan?: 'Free' | 'Pro' | 'Team';
 }

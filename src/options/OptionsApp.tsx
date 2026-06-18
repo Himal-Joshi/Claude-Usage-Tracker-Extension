@@ -86,10 +86,10 @@ const OptionsApp: React.FC = () => {
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mb-3 flex gap-3">
                <AlertTriangle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
                <p className="text-[11px] text-amber-200/70 leading-relaxed">
-                 Providing an API key enables exact token tracking via Anthropic's token counting API. <strong>Security Warning:</strong> Keys are stored in Chrome's local storage unencrypted. Only use keys with restricted permissions if possible.
+                 Providing an API key enables exact token tracking via Anthropic's token counting API. <strong>Security Note:</strong> Stored keys are not encrypted at rest by the browser. We strongly recommend setting a spend cap and using a restricted-scope key in your Anthropic console. Avoid using "Remember API key" on a shared machine.
                </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 mb-3">
               <input 
                 type="password" 
                 value={settings.anthropicApiKey || ''}
@@ -101,6 +101,15 @@ const OptionsApp: React.FC = () => {
                 <button onClick={handleClearKey} className="px-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg transition-colors text-sm font-medium">Clear</button>
               )}
             </div>
+            <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={settings.rememberApiKey !== false}
+                onChange={(e) => setSettings({ ...settings, rememberApiKey: e.target.checked })}
+                className="rounded border-gray-700 bg-[#111118] text-indigo-500 focus:ring-indigo-500"
+              />
+              {settings.rememberApiKey !== false ? "Remember API key (Store locally)" : "Ask each session (In-memory only)"}
+            </label>
           </div>
 
           <button 

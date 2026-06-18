@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { Settings, Download, BarChart2, X } from 'lucide-react';
 import { useTokenTracker } from '../hooks/useTokenTracker';
 import { Exporter } from '../export';
-import OptionsApp from '../options/OptionsApp';
 
 const ContentApp: React.FC = () => {
-  const { tokens, isExact, contextLimit } = useTokenTracker();
-  const [modalOpen, setModalOpen] = useState(false);
+  const { tokens, isExact, contextLimit, isTruncated } = useTokenTracker();
   const contextPercentage = (tokens.total / contextLimit) * 100;
   
   // Estimate cost based on Claude 3 Opus pricing ($15/M input)
@@ -25,6 +23,10 @@ const ContentApp: React.FC = () => {
     });
   };
 
+  const handleOpenSettings = () => {
+    chrome.runtime.sendMessage({ action: 'open_options' });
+  };
+
   return (
     <>
       <div className="flex items-center gap-4 bg-transparent text-gray-400 px-1 py-0.5 rounded text-[11px] font-sans transition-all">
@@ -35,6 +37,9 @@ const ContentApp: React.FC = () => {
             <span className="bg-emerald-500/20 text-emerald-400 text-[9px] px-1.5 py-0.5 rounded flex items-center font-medium">Exact</span>
           ) : (
             <span className="bg-amber-500/20 text-amber-400 text-[9px] px-1.5 py-0.5 rounded flex items-center font-medium">Est.</span>
+          )}
+          {isTruncated && (
+            <span className="bg-red-500/20 text-red-400 text-[9px] px-1.5 py-0.5 rounded flex items-center font-medium" title="Estimate based on partial text">Truncated</span>
           )}
           
           <div className="flex items-center gap-3 ml-1">
@@ -55,27 +60,11 @@ const ContentApp: React.FC = () => {
           <button onClick={handleExport} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative">
             <Download size={12} />
           </button>
-          <button onClick={() => setModalOpen(true)} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative">
+          <button onClick={handleOpenSettings} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative">
             <Settings size={12} />
           </button>
         </div>
       </div>
-
-      {modalOpen && (
-        <div className="fixed inset-0 z-[9999999] bg-black/60 backdrop-blur-sm flex items-center justify-center font-sans text-left text-base" style={{ left: 0, top: 0, width: '100vw', height: '100vh' }}>
-          <div className="relative bg-[#111118] border border-white/10 shadow-2xl rounded-2xl overflow-hidden w-[500px] max-w-[90vw]">
-            <button 
-              onClick={() => setModalOpen(false)}
-              className="absolute top-4 right-4 p-1 bg-white/5 hover:bg-white/10 text-white rounded-full z-50 transition-colors"
-            >
-              <X size={16} />
-            </button>
-            <div className="h-[600px] overflow-y-auto">
-              <OptionsApp />
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };

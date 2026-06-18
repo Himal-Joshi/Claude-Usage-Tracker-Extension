@@ -1,4 +1,5 @@
 /// <reference types="chrome" />
+import { encode } from 'gpt-tokenizer';
 
 console.log("Claude Usage Tracker Background Service Worker Started.");
 
@@ -10,13 +11,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'open_options') {
     // Open the options page in a new tab or focus if it's already open
     chrome.runtime.openOptionsPage();
-    // We can use storage to remember which tab to open
-    chrome.storage.local.set({ activeTab: message.tab });
+  } else if (message.action === 'get_public_settings') {
+    (async () => {
+      try {
+        const result = await chrome.storage.local.get(['settings']);
+        const sessionResult = await chrome.storage.session?.get(['settings']).catch(() => ({}));
+        
+        const localSettings = (result as any).settings || {};
+        const sessionSettings = (sessionResult as any)?.settings || {};
+        const settings = { ...localSettings, ...sessionSettings };
+        
+        const hasApiKey = !!settings.anthropicApiKey;
+        const claudePlan = settings.claudePlan || 'Free';
+        
+        sendResponse({ success: true, hasApiKey, claudePlan });
+      } catch (e: any) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
   } else if (message.action === 'count_tokens') {
     (async () => {
       try {
         const result = await chrome.storage.local.get(['settings']);
-        const apiKey = (result.settings as any)?.anthropicApiKey;
+        const sessionResult = await chrome.storage.session?.get(['settings']).catch(() => ({}));
+        
+        const localSettings = (result as any).settings || {};
+        const sessionSettings = (sessionResult as any)?.settings || {};
+        const settings = { ...localSettings, ...sessionSettings };
+        
+        const apiKey = settings.anthropicApiKey;
         
         if (!apiKey) {
           sendResponse({ error: 'No API key configured' });
@@ -48,5 +72,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
     return true; // Keep message channel open for async response
+  } else if (message.action === 'estimate_tokens') {
+    try {
+      const tokenCount = encode(message.text || '').length;
+      sendResponse({ success: true, tokenCount });
+    } catch (err) {
+      console.error("Token estimation failed", err);
+      // Fallback
+      const tokenCount = Math.ceil((message.text || '').length / 4);
+      sendResponse({ success: true, tokenCount });
+    }
+    return false; // synchronous response
   }
 });

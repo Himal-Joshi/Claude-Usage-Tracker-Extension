@@ -1,77 +1,83 @@
-import { useState, useEffect } from 'react';
-import { Tokenizer } from '../tokenizer';
-import { StorageManager } from '../storage';
+import { useState, useEffect, useRef } from 'react';
 
 export function useTokenTracker() {
   const [tokens, setTokens] = useState({ input: 0, output: 0, total: 0 });
   const [isExact, setIsExact] = useState(false);
+  const [isTruncated, setIsTruncated] = useState(false);
   const [contextLimit, setContextLimit] = useState(200000); // Default
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout>;
     let apiDebounceTimer: ReturnType<typeof setTimeout>;
     
-      const calculateTokens = async () => {
-        // Find input box
-        const inputElement = document.querySelector('div[contenteditable="true"]');
-        let text = inputElement?.textContent || '';
+    const calculateTokens = async () => {
+      // Find input box
+      const inputElement = document.querySelector('div[contenteditable="true"]');
+      let text = inputElement?.textContent || '';
+      
+      const messageElements = document.querySelectorAll('.font-user-message, .font-claude-message, .prose');
+      if (messageElements.length > 0) {
+        let messagesText = '';
+        messageElements.forEach(el => messagesText += el.textContent + '\n');
+        text = messagesText + '\n' + text;
+      }
+      
+      chrome.runtime.sendMessage({ action: 'get_public_settings' }, (response) => {
+        if (!response || !response.success) return;
         
-        // Find messages. Claude uses .font-user-message and .font-claude-message, or .prose for content.
-        // If we can't find specific message elements, we fallback to the main container, but we avoid the empty state.
-        const messageElements = document.querySelectorAll('.font-user-message, .font-claude-message, .prose');
-        if (messageElements.length > 0) {
-          let messagesText = '';
-          messageElements.forEach(el => messagesText += el.textContent + '\n');
-          text = messagesText + '\n' + text;
+        const { hasApiKey, claudePlan } = response;
+      
+        if (claudePlan === 'Pro' || claudePlan === 'Team') {
+          setContextLimit(200000); 
         } else {
-          // If no messages found, it's a new chat. We just use the input text.
-          // This prevents counting the "Good evening" and UI buttons as tokens.
+          setContextLimit(100000);
         }
         
-        const settings = await StorageManager.getSettings();
-      
-      // Update context limit based on plan
-      if (settings.claudePlan === 'Pro' || settings.claudePlan === 'Team') {
-        setContextLimit(200000); 
-      } else {
-        setContextLimit(100000); // Assume free plan has lower limit for UI purposes
-      }
-      
-      let estimatedTokens = Tokenizer.estimateTokens(text);
-      
-      if (settings.anthropicApiKey) {
-        // Debounce API calls heavily, but locally estimate in the meantime
-        setTokens(prev => ({
-           ...prev,
-           input: Math.floor(estimatedTokens * 0.4),
-           output: Math.ceil(estimatedTokens * 0.6),
-           total: estimatedTokens
-        }));
-        setIsExact(false);
+        let textToEstimate = text;
+        const TRUNCATE_LIMIT = 200000;
+        if (textToEstimate.length > TRUNCATE_LIMIT) {
+          textToEstimate = textToEstimate.substring(0, TRUNCATE_LIMIT);
+          setIsTruncated(true);
+        } else {
+          setIsTruncated(false);
+        }
+
+        requestIdRef.current += 1;
+        const currentReqId = requestIdRef.current;
         
-        clearTimeout(apiDebounceTimer);
-        apiDebounceTimer = setTimeout(() => {
-          chrome.runtime.sendMessage({ action: 'count_tokens', text: text.substring(0, 50000) }, (response) => {
-            if (response && response.success && typeof response.tokens === 'number') {
-              setTokens({
-                 input: response.tokens,
-                 output: 0,
-                 total: response.tokens
-              });
-              setIsExact(true);
-            } else if (response && response.error) {
-              console.error('Failed to fetch exact tokens from background:', response.error);
-            }
-          });
-        }, 2000); // Wait 2s of idle before hitting API
-      } else {
-        setTokens({
-          input: Math.floor(estimatedTokens * 0.4),
-          output: Math.ceil(estimatedTokens * 0.6),
-          total: estimatedTokens
+        chrome.runtime.sendMessage({ action: 'estimate_tokens', text: textToEstimate, requestId: currentReqId }, (response) => {
+          if (response && response.success && currentReqId === requestIdRef.current) {
+            setTokens(prev => ({
+              ...prev,
+              input: Math.floor(response.tokenCount * 0.4),
+              output: Math.ceil(response.tokenCount * 0.6),
+              total: response.tokenCount
+            }));
+            setIsExact(false);
+          }
         });
-        setIsExact(false);
-      }
+        
+        if (hasApiKey) {
+          clearTimeout(apiDebounceTimer);
+          apiDebounceTimer = setTimeout(() => {
+            chrome.runtime.sendMessage({ action: 'count_tokens', text: text.substring(0, 50000) }, (response) => {
+              if (response && response.success && typeof response.tokens === 'number') {
+                if (currentReqId === requestIdRef.current) {
+                  setTokens({
+                     input: response.tokens,
+                     output: 0,
+                     total: response.tokens
+                  });
+                  setIsExact(true);
+                }
+              } else if (response && response.error) {
+                console.error('Failed to fetch exact tokens from background:', response.error);
+              }
+            });
+          }, 2000); // Wait 2s of idle before hitting API
+        }
+      });
     };
 
     // Calculate immediately
@@ -79,14 +85,13 @@ export function useTokenTracker() {
 
     const handleInteraction = () => {
       clearTimeout(debounceTimer);
-      // Fast refresh for typing
-      debounceTimer = setTimeout(calculateTokens, 300);
+      // Fast refresh for typing (increased to 500ms since it's off-thread but still BPE)
+      debounceTimer = setTimeout(calculateTokens, 500);
     };
 
     const observer = new MutationObserver(handleInteraction);
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
-    // Catch active typing events for immediate feedback
     document.addEventListener('input', handleInteraction, true);
     document.addEventListener('keyup', handleInteraction, true);
 
@@ -99,5 +104,5 @@ export function useTokenTracker() {
     };
   }, []);
 
-  return { tokens, isExact, contextLimit };
+  return { tokens, isExact, contextLimit, isTruncated };
 }
