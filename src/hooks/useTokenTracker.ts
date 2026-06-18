@@ -6,7 +6,32 @@ export function useTokenTracker() {
   const [isExact, setIsExact] = useState(false);
   const [isTruncated, setIsTruncated] = useState(false);
   const [contextLimit, setContextLimit] = useState(200000); // Default
+  const [todayTotal, setTodayTotal] = useState(0);
   const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    const fetchTodayTotal = async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const data = await chrome.storage.local.get('stats');
+      const stats = data.stats || {};
+      if (stats[today]) {
+        setTodayTotal(stats[today].inputTokens);
+      }
+    };
+    fetchTodayTotal();
+    
+    const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+      if (areaName === 'local' && changes.stats) {
+        const today = new Date().toISOString().split('T')[0];
+        const newStats = changes.stats.newValue || {};
+        if (newStats[today]) {
+          setTodayTotal(newStats[today].inputTokens);
+        }
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
+  }, []);
 
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout>;
@@ -134,5 +159,5 @@ export function useTokenTracker() {
     };
   }, []);
 
-  return { tokens, isExact, contextLimit, isTruncated };
+  return { tokens, isExact, contextLimit, isTruncated, todayTotal };
 }

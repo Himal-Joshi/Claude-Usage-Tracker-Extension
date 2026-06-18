@@ -4,7 +4,7 @@ import { useTokenTracker } from '../hooks/useTokenTracker';
 import { Exporter } from '../export';
 
 const ContentApp: React.FC = () => {
-  const { tokens, isExact, contextLimit, isTruncated } = useTokenTracker();
+  const { tokens, isExact, contextLimit, isTruncated, todayTotal } = useTokenTracker();
   const contextPercentage = (tokens.total / contextLimit) * 100;
   
   // Estimate cost based on Claude 3 Opus pricing ($15/M input)
@@ -54,9 +54,15 @@ const ContentApp: React.FC = () => {
               />
             </div>
           </div>
+          
+          <div className="h-4 w-px bg-white/20 mx-1"></div>
+          <div className="flex flex-col items-start pl-1">
+            <span className="font-semibold text-[8px] uppercase tracking-wider text-gray-500">Today</span>
+            <span className="font-mono text-[11px] text-indigo-400 font-medium whitespace-nowrap">{todayTotal.toLocaleString()}</span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 ml-2">
           <button onClick={handleExport} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative">
             <Download size={12} />
           </button>
