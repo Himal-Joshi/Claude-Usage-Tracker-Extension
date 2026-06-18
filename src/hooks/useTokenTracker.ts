@@ -13,7 +13,7 @@ export function useTokenTracker() {
     const fetchTodayTotal = async () => {
       const today = new Date().toISOString().split('T')[0];
       const data = await chrome.storage.local.get('stats');
-      const stats = data.stats || {};
+      const stats = (data.stats as Record<string, any>) || {};
       if (stats[today]) {
         setTodayTotal(stats[today].inputTokens);
       }
@@ -23,7 +23,7 @@ export function useTokenTracker() {
     const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
       if (areaName === 'local' && changes.stats) {
         const today = new Date().toISOString().split('T')[0];
-        const newStats = changes.stats.newValue || {};
+        const newStats = (changes.stats.newValue as Record<string, any>) || {};
         if (newStats[today]) {
           setTodayTotal(newStats[today].inputTokens);
         }
