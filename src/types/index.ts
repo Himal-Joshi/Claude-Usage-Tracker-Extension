@@ -29,6 +29,7 @@ export interface DailyStats {
   inputTokens: number;
   outputTokens: number;
   conversationsCount: number;
+  chatMaxTokens?: Record<string, number>;
 }
 
 export interface UserSettings {

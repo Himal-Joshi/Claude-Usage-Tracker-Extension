@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { StorageManager } from '../storage';
 
 export function useTokenTracker() {
   const [tokens, setTokens] = useState({ input: 0, output: 0, total: 0 });
@@ -14,13 +15,34 @@ export function useTokenTracker() {
     const calculateTokens = async () => {
       // Find input box
       const inputElement = document.querySelector('div[contenteditable="true"]');
-      let text = inputElement?.textContent || '';
+      const inputText = inputElement?.textContent || '';
       
-      const messageElements = document.querySelectorAll('.font-user-message, .font-claude-message, .prose');
-      if (messageElements.length > 0) {
-        let messagesText = '';
-        messageElements.forEach(el => messagesText += el.textContent + '\n');
-        text = messagesText + '\n' + text;
+      let text = '';
+      
+      // Determine if it's a new empty chat by checking URL or common empty-state text
+      const isNewChatUrl = window.location.pathname === '/' || window.location.pathname === '/new';
+      const chatContainer = document.querySelector('.flex-1.overflow-hidden') || document.body;
+      const containerText = chatContainer.textContent || '';
+      const hasEmptyStateBoilerplate = containerText.includes('to get started') || containerText.includes("Claude's choice");
+      
+      if (isNewChatUrl || hasEmptyStateBoilerplate) {
+        // It's a new chat, so ignore all the background "Good evening" boilerplate
+        // Only count what the user is currently typing
+        text = inputText;
+      } else {
+        // It's an active chat! We can safely use the entire chat container's text.
+        // This makes us immune to Claude changing their message CSS classes.
+        // We'll try to find specific messages first to be clean, but fallback to the whole container.
+        const messageElements = document.querySelectorAll('.font-user-message, .font-claude-message, .prose, [data-is-user], [data-message-author], [data-testid*="message"], .ReactMarkdown');
+        
+        if (messageElements.length > 0) {
+          let messagesText = '';
+          messageElements.forEach(el => messagesText += el.textContent + '\n');
+          text = messagesText + '\n' + inputText;
+        } else {
+          // Bulletproof fallback: just grab the whole chat area's text
+          text = containerText;
+        }
       }
       
       chrome.runtime.sendMessage({ action: 'get_public_settings' }, (response) => {
@@ -55,6 +77,10 @@ export function useTokenTracker() {
               total: response.tokenCount
             }));
             setIsExact(false);
+            
+            // Record usage in daily analytics
+            const today = new Date().toISOString().split('T')[0];
+            StorageManager.updateDailyStats(today, window.location.pathname, response.tokenCount).catch(console.error);
           }
         });
         
@@ -70,6 +96,10 @@ export function useTokenTracker() {
                      total: response.tokens
                   });
                   setIsExact(true);
+                  
+                  // Record exact usage in daily analytics
+                  const today = new Date().toISOString().split('T')[0];
+                  StorageManager.updateDailyStats(today, window.location.pathname, response.tokens).catch(console.error);
                 }
               } else if (response && response.error) {
                 console.error('Failed to fetch exact tokens from background:', response.error);

@@ -73,14 +73,23 @@ export const StorageManager = {
     await chrome.storage.local.set({ conversations });
   },
 
-  async updateDailyStats(date: string, inputTokens: number, outputTokens: number): Promise<void> {
+  async updateDailyStats(date: string, chatId: string, totalTokens: number): Promise<void> {
     const data = await chrome.storage.local.get('stats');
     const stats = (data.stats as Record<string, DailyStats>) || {};
     if (!stats[date]) {
-      stats[date] = { date, inputTokens: 0, outputTokens: 0, conversationsCount: 0 };
+      stats[date] = { date, inputTokens: 0, outputTokens: 0, conversationsCount: 0, chatMaxTokens: {} };
     }
-    stats[date].inputTokens += inputTokens;
-    stats[date].outputTokens += outputTokens;
-    await chrome.storage.local.set({ stats });
+    if (!stats[date].chatMaxTokens) {
+      stats[date].chatMaxTokens = {};
+    }
+    
+    const prevTokens = stats[date].chatMaxTokens[chatId] || 0;
+    if (totalTokens > prevTokens) {
+      const delta = totalTokens - prevTokens;
+      // We attribute the delta to inputTokens for simplicity of overall usage graph
+      stats[date].inputTokens += delta;
+      stats[date].chatMaxTokens[chatId] = totalTokens;
+      await chrome.storage.local.set({ stats });
+    }
   }
 };
