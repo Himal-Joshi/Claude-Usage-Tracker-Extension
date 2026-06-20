@@ -72,6 +72,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
     return true; // Keep message channel open for async response
+  } else if (message.action === 'optimize_prompt') {
+    (async () => {
+      try {
+        const result = await chrome.storage.local.get(['settings']);
+        const sessionResult = await chrome.storage.session?.get(['settings']).catch(() => ({}));
+        
+        const localSettings = (result as any).settings || {};
+        const sessionSettings = (sessionResult as any)?.settings || {};
+        const settings = { ...localSettings, ...sessionSettings };
+        
+        const apiKey = settings.anthropicApiKey;
+        
+        if (!apiKey) {
+          sendResponse({ error: 'No API key configured. Please configure your Anthropic API Key in Settings.' });
+          return;
+        }
+
+        const systemPrompt = message.systemPrompt;
+        const userPrompt = message.userPrompt;
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: 'claude-3-5-sonnet-20240620',
+            max_tokens: 4000,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userPrompt }]
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const optimizedText = data.content?.[0]?.text || '';
+          sendResponse({ success: true, optimizedText });
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          const errMsg = errData?.error?.message || `API returned status ${response.status}`;
+          sendResponse({ error: errMsg });
+        }
+      } catch (e: any) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true; // Keep message channel open for async response
   } else if (message.action === 'estimate_tokens') {
     try {
       const tokenCount = encode(message.text || '').length;

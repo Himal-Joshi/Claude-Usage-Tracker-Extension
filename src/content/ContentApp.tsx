@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Settings, Download, BarChart2, X } from 'lucide-react';
+import { Settings, Download, BarChart2, X, Sparkles } from 'lucide-react';
 import { useTokenTracker } from '../hooks/useTokenTracker';
 import { Exporter } from '../export';
+import PromptOptimizerModal from '../components/PromptOptimizerModal';
 
 const ContentApp: React.FC = () => {
   const { tokens, isExact, contextLimit, isTruncated, todayTotal } = useTokenTracker();
+  const [isOptimizerOpen, setIsOptimizerOpen] = useState(false);
   const contextPercentage = (tokens.total / contextLimit) * 100;
   
   // Estimate cost based on Claude 3 Opus pricing ($15/M input)
@@ -63,14 +65,22 @@ const ContentApp: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-0.5 ml-2">
-          <button onClick={handleExport} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative">
+          <button 
+            onClick={() => setIsOptimizerOpen(true)} 
+            className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative"
+            title="Optimize Prompt"
+          >
+            <Sparkles size={12} />
+          </button>
+          <button onClick={handleExport} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative" title="Export Markdown">
             <Download size={12} />
           </button>
-          <button onClick={handleOpenSettings} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative">
+          <button onClick={handleOpenSettings} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative" title="Settings">
             <Settings size={12} />
           </button>
         </div>
       </div>
+      {isOptimizerOpen && <PromptOptimizerModal onClose={() => setIsOptimizerOpen(false)} />}
     </>
   );
 };
