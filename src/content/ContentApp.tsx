@@ -56,28 +56,28 @@ const ContentApp: React.FC = () => {
               />
             </div>
           </div>
+
+          <div className="flex items-center gap-0.5 ml-2 mr-1">
+            <button 
+              onClick={() => setIsOptimizerOpen(true)} 
+              className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative"
+              title="Optimize Prompt"
+            >
+              <Sparkles size={12} />
+            </button>
+            <button onClick={handleExport} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative" title="Export Markdown">
+              <Download size={12} />
+            </button>
+            <button onClick={handleOpenSettings} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative" title="Settings">
+              <Settings size={12} />
+            </button>
+          </div>
           
           <div className="h-4 w-px bg-white/20 mx-1"></div>
           <div className="flex flex-col items-start pl-1">
             <span className="font-semibold text-[8px] uppercase tracking-wider text-gray-500">Today</span>
             <span className="font-mono text-[11px] text-indigo-400 font-medium whitespace-nowrap">{todayTotal.toLocaleString()}</span>
           </div>
-        </div>
-
-        <div className="flex items-center gap-0.5 ml-2">
-          <button 
-            onClick={() => setIsOptimizerOpen(true)} 
-            className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative"
-            title="Optimize Prompt"
-          >
-            <Sparkles size={12} />
-          </button>
-          <button onClick={handleExport} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative" title="Export Markdown">
-            <Download size={12} />
-          </button>
-          <button onClick={handleOpenSettings} className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative" title="Settings">
-            <Settings size={12} />
-          </button>
         </div>
       </div>
       {isOptimizerOpen && <PromptOptimizerModal onClose={() => setIsOptimizerOpen(false)} />}
