@@ -16,8 +16,8 @@ function injectApp() {
     // Inject inside the fieldset, absolutely positioned in the bottom gap
     formElement.style.position = 'relative';
     formElement.appendChild(rootElement);
-    // Position it safely near the left side, past the + button
-    rootElement.className = 'absolute bottom-2.5 left-16 z-50 flex items-center bg-transparent pointer-events-auto';
+        // Position it safely near the left side, past the + button
+    rootElement.className = 'absolute bottom-2.5 left-12 z-50 flex items-center bg-transparent pointer-events-auto';
   } else {
     // Fallback: fixed at bottom center
     document.body.appendChild(rootElement);

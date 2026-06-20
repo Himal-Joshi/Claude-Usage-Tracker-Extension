@@ -31,9 +31,9 @@ const ContentApp: React.FC = () => {
 
   return (
     <>
-      <div className="flex items-center gap-4 bg-transparent text-gray-400 px-1 py-0.5 rounded text-[11px] font-sans transition-all">
+      <div className="flex items-center gap-2 bg-transparent text-gray-400 px-1 py-0.5 rounded text-[11px] font-sans transition-all">
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className="font-semibold text-[10px] uppercase tracking-wider text-gray-300">Context</span>
           {isExact ? (
             <span className="bg-emerald-500/20 text-emerald-400 text-[9px] px-1.5 py-0.5 rounded flex items-center font-medium">Exact</span>
@@ -44,12 +44,12 @@ const ContentApp: React.FC = () => {
             <span className="bg-red-500/20 text-red-400 text-[9px] px-1.5 py-0.5 rounded flex items-center font-medium" title="Estimate based on partial text">Truncated</span>
           )}
           
-          <div className="flex items-center gap-3 ml-1">
+          <div className="flex items-center gap-1.5 ml-1">
             <div className="flex flex-col items-end">
               <span className="font-mono text-xs text-white font-medium whitespace-nowrap">{tokens.total.toLocaleString()} <span className="text-gray-500 text-[9px]">/ {contextLimit.toLocaleString()}</span></span>
               <span className="font-mono text-[9px] text-emerald-400 opacity-80 whitespace-nowrap">${estimatedCost.toFixed(4)} est.</span>
             </div>
-            <div className="w-32 h-2 bg-black/40 rounded-full overflow-hidden shadow-inner">
+            <div className="w-20 h-1.5 bg-black/40 rounded-full overflow-hidden shadow-inner">
               <div 
                 className={`h-full rounded-full transition-all duration-500 ${contextPercentage > 90 ? 'bg-red-500' : contextPercentage > 75 ? 'bg-amber-500' : 'bg-indigo-500'}`}
                 style={{ width: `${Math.min(contextPercentage, 100)}%` }}
@@ -57,7 +57,7 @@ const ContentApp: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 ml-2 mr-1">
+          <div className="flex items-center gap-0.5 ml-1.5 mr-0.5">
             <button 
               onClick={() => setIsOptimizerOpen(true)} 
               className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative"
@@ -73,7 +73,7 @@ const ContentApp: React.FC = () => {
             </button>
           </div>
           
-          <div className="h-4 w-px bg-white/20 mx-1"></div>
+          <div className="h-4 w-px bg-white/20 mx-0.5"></div>
           <div className="flex flex-col items-start pl-1">
             <span className="font-semibold text-[8px] uppercase tracking-wider text-gray-500">Today</span>
             <span className="font-mono text-[11px] text-indigo-400 font-medium whitespace-nowrap">{todayTotal.toLocaleString()}</span>
