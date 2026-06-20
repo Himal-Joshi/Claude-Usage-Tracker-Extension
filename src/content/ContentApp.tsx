@@ -49,7 +49,7 @@ const ContentApp: React.FC = () => {
               <span className="font-mono text-xs text-white font-medium whitespace-nowrap">{tokens.total.toLocaleString()} <span className="text-gray-500 text-[9px]">/ {contextLimit.toLocaleString()}</span></span>
               <span className="font-mono text-[9px] text-emerald-400 opacity-80 whitespace-nowrap">${estimatedCost.toFixed(4)} est.</span>
             </div>
-            <div className="w-20 h-1.5 bg-black/40 rounded-full overflow-hidden shadow-inner">
+            <div className="w-16 h-1.5 bg-black/40 rounded-full overflow-hidden shadow-inner">
               <div 
                 className={`h-full rounded-full transition-all duration-500 ${contextPercentage > 90 ? 'bg-red-500' : contextPercentage > 75 ? 'bg-amber-500' : 'bg-indigo-500'}`}
                 style={{ width: `${Math.min(contextPercentage, 100)}%` }}
@@ -57,7 +57,7 @@ const ContentApp: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 ml-1.5 mr-0.5">
+          <div className="flex items-center gap-0.5 ml-1">
             <button 
               onClick={() => setIsOptimizerOpen(true)} 
               className="p-1 hover:bg-white/10 rounded transition-colors text-gray-500 hover:text-white group relative"
@@ -73,8 +73,8 @@ const ContentApp: React.FC = () => {
             </button>
           </div>
           
-          <div className="h-4 w-px bg-white/20 mx-0.5"></div>
-          <div className="flex flex-col items-start pl-1">
+          <div className="h-4 w-px bg-white/20"></div>
+          <div className="flex flex-col items-start">
             <span className="font-semibold text-[8px] uppercase tracking-wider text-gray-500">Today</span>
             <span className="font-mono text-[11px] text-indigo-400 font-medium whitespace-nowrap">{todayTotal.toLocaleString()}</span>
           </div>
