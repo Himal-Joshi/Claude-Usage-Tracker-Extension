@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings, BarChart2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { StorageManager } from '../storage';
 import type { UserSettings, ExtensionState } from '../types';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 
 const OptionsApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'settings' | 'analytics'>('settings');
@@ -81,6 +81,29 @@ const OptionsApp: React.FC = () => {
             </select>
           </div>
 
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">Session Limit (5h)</label>
+              <input 
+                type="number" 
+                value={settings.sessionMessageLimit ?? (settings.claudePlan === 'Pro' ? 45 : settings.claudePlan === 'Team' ? 100 : 8)}
+                onChange={(e) => setSettings({ ...settings, sessionMessageLimit: parseInt(e.target.value) || 0 })}
+                className="w-full bg-[#111118] border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                placeholder={settings.claudePlan === 'Pro' ? '45' : settings.claudePlan === 'Team' ? '100' : '8'}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">Weekly Limit</label>
+              <input 
+                type="number" 
+                value={settings.weeklyMessageLimit ?? (settings.claudePlan === 'Pro' ? 300 : settings.claudePlan === 'Team' ? 1000 : 50)}
+                onChange={(e) => setSettings({ ...settings, weeklyMessageLimit: parseInt(e.target.value) || 0 })}
+                className="w-full bg-[#111118] border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                placeholder={settings.claudePlan === 'Pro' ? '300' : settings.claudePlan === 'Team' ? '1000' : '50'}
+              />
+            </div>
+          </div>
+
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-400 mb-2">Anthropic API Key (Optional)</label>
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mb-3 flex gap-3">
@@ -143,26 +166,24 @@ const OptionsApp: React.FC = () => {
             </div>
           </div>
 
-          <div className="h-[200px] w-full mt-4 bg-[#111118] rounded-lg border border-white/5 p-4 pt-6">
+          <div className="h-[200px] w-full mt-4 bg-[#111118] rounded-lg border border-white/5 flex items-center justify-center p-2">
             {statsData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={statsData}>
-                  <defs>
-                    <linearGradient id="colorTokens" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                  <XAxis dataKey="date" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${(val/1000).toFixed(0)}k`} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                    itemStyle={{ color: '#818cf8' }}
-                  />
-                  <Area type="monotone" dataKey="tokens" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#colorTokens)" />
-                </AreaChart>
-              </ResponsiveContainer>
+              <AreaChart width={400} height={180} data={statsData}>
+                <defs>
+                  <linearGradient id="colorTokens" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                <XAxis dataKey="date" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${(val/1000).toFixed(0)}k`} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#818cf8' }}
+                />
+                <Area type="monotone" dataKey="tokens" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#colorTokens)" />
+              </AreaChart>
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 text-sm">
                 <BarChart2 size={32} className="mb-2 opacity-20" />

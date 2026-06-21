@@ -122,6 +122,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
     return true; // Keep message channel open for async response
+  } else if (message.action === 'record_message_sent') {
+    (async () => {
+      try {
+        const timesResult = await chrome.storage.local.get('messageTimes');
+        const times = (timesResult.messageTimes as number[]) || [];
+        times.push(Date.now());
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        const filteredTimes = times.filter(t => t > sevenDaysAgo);
+        await chrome.storage.local.set({ messageTimes: filteredTimes });
+        sendResponse({ success: true });
+      } catch (e: any) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true; // Keep message channel open for async response
   } else if (message.action === 'estimate_tokens') {
     try {
       const tokenCount = encode(message.text || '').length;

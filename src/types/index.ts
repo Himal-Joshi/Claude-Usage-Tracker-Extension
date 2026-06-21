@@ -37,6 +37,8 @@ export interface UserSettings {
   rememberApiKey?: boolean;
   autoBackup?: boolean;
   claudePlan?: 'Free' | 'Pro' | 'Team';
+  sessionMessageLimit?: number;
+  weeklyMessageLimit?: number;
 }
 
 export interface ExtensionState {

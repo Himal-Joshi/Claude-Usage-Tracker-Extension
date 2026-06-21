@@ -73,23 +73,38 @@ export const StorageManager = {
     await chrome.storage.local.set({ conversations });
   },
 
-  async updateDailyStats(date: string, chatId: string, totalTokens: number): Promise<void> {
-    const data = await chrome.storage.local.get('stats');
+  async updateDailyStats(date: string, chatId: string, totalTokens: number, isInitial: boolean): Promise<void> {
+    const data = await chrome.storage.local.get(['stats', 'globalChatMaxTokens']);
     const stats = (data.stats as Record<string, DailyStats>) || {};
+    const globalChatMaxTokens = (data.globalChatMaxTokens as Record<string, number>) || {};
+
     if (!stats[date]) {
       stats[date] = { date, inputTokens: 0, outputTokens: 0, conversationsCount: 0, chatMaxTokens: {} };
     }
-    if (!stats[date].chatMaxTokens) {
-      stats[date].chatMaxTokens = {};
-    }
-    
-    const prevTokens = stats[date].chatMaxTokens[chatId] || 0;
+
+    const prevTokens = globalChatMaxTokens[chatId] || 0;
     if (totalTokens > prevTokens) {
       const delta = totalTokens - prevTokens;
-      // We attribute the delta to inputTokens for simplicity of overall usage graph
-      stats[date].inputTokens += delta;
-      stats[date].chatMaxTokens[chatId] = totalTokens;
-      await chrome.storage.local.set({ stats });
+      // Only attribute to today's stats if it's not the initial load of an existing chat
+      if (!isInitial || prevTokens > 0) {
+        stats[date].inputTokens += delta;
+      }
+      globalChatMaxTokens[chatId] = totalTokens;
+      await chrome.storage.local.set({ stats, globalChatMaxTokens });
     }
+  },
+
+  async getMessageTimes(): Promise<number[]> {
+    const data = await chrome.storage.local.get('messageTimes');
+    return (data.messageTimes as number[]) || [];
+  },
+
+  async addMessageTime(timestamp: number): Promise<void> {
+    const times = await this.getMessageTimes();
+    times.push(timestamp);
+    // Keep only last 7 days of timestamps to avoid unbounded growth
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const filteredTimes = times.filter(t => t > sevenDaysAgo);
+    await chrome.storage.local.set({ messageTimes: filteredTimes });
   }
 };

@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { StorageManager } from '../storage';
 
+function isContextValid(): boolean {
+  return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+}
+
 export function useTokenTracker() {
   const [tokens, setTokens] = useState({ input: 0, output: 0, total: 0 });
   const [isExact, setIsExact] = useState(false);
@@ -8,19 +12,31 @@ export function useTokenTracker() {
   const [contextLimit, setContextLimit] = useState(200000); // Default
   const [todayTotal, setTodayTotal] = useState(0);
   const requestIdRef = useRef(0);
+  
+  const [currentChatId, setCurrentChatId] = useState(window.location.pathname);
+  const isInitialRef = useRef(true);
+
+  if (window.location.pathname !== currentChatId) {
+    setCurrentChatId(window.location.pathname);
+    isInitialRef.current = true;
+  }
 
   useEffect(() => {
     const fetchTodayTotal = async () => {
-      const today = new Date().toISOString().split('T')[0];
-      const data = await chrome.storage.local.get('stats');
-      const stats = (data.stats as Record<string, any>) || {};
-      if (stats[today]) {
-        setTodayTotal(stats[today].inputTokens);
-      }
+      if (!isContextValid()) return;
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const data = await chrome.storage.local.get('stats');
+        const stats = (data.stats as Record<string, any>) || {};
+        if (stats[today]) {
+          setTodayTotal(stats[today].inputTokens);
+        }
+      } catch (e) {}
     };
     fetchTodayTotal();
     
     const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+      if (!isContextValid()) return;
       if (areaName === 'local' && changes.stats) {
         const today = new Date().toISOString().split('T')[0];
         const newStats = (changes.stats.newValue as Record<string, any>) || {};
@@ -29,15 +45,28 @@ export function useTokenTracker() {
         }
       }
     };
-    chrome.storage.onChanged.addListener(listener);
-    return () => chrome.storage.onChanged.removeListener(listener);
+    
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener(listener);
+    }
+    
+    return () => {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+        try {
+          chrome.storage.onChanged.removeListener(listener);
+        } catch (e) {}
+      }
+    };
   }, []);
 
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout>;
     let apiDebounceTimer: ReturnType<typeof setTimeout>;
+    let lastExecuted = 0;
+    const THROTTLE_INTERVAL = 1000; // Recalculate at most once per second during active updates
     
     const calculateTokens = async () => {
+      if (!isContextValid()) return;
       // Find input box
       const inputElement = document.querySelector('div[contenteditable="true"]');
       const inputText = inputElement?.textContent || '';
@@ -105,7 +134,8 @@ export function useTokenTracker() {
             
             // Record usage in daily analytics
             const today = new Date().toISOString().split('T')[0];
-            StorageManager.updateDailyStats(today, window.location.pathname, response.tokenCount).catch(console.error);
+            StorageManager.updateDailyStats(today, window.location.pathname, response.tokenCount, isInitialRef.current).catch(console.error);
+            isInitialRef.current = false;
           }
         });
         
@@ -124,7 +154,8 @@ export function useTokenTracker() {
                   
                   // Record exact usage in daily analytics
                   const today = new Date().toISOString().split('T')[0];
-                  StorageManager.updateDailyStats(today, window.location.pathname, response.tokens).catch(console.error);
+                  StorageManager.updateDailyStats(today, window.location.pathname, response.tokens, isInitialRef.current).catch(console.error);
+                  isInitialRef.current = false;
                 }
               } else if (response && response.error) {
                 console.error('Failed to fetch exact tokens from background:', response.error);
@@ -139,9 +170,18 @@ export function useTokenTracker() {
     calculateTokens();
 
     const handleInteraction = () => {
+      const now = Date.now();
       clearTimeout(debounceTimer);
-      // Fast refresh for typing (increased to 500ms since it's off-thread but still BPE)
-      debounceTimer = setTimeout(calculateTokens, 500);
+      
+      if (now - lastExecuted >= THROTTLE_INTERVAL) {
+        lastExecuted = now;
+        calculateTokens();
+      } else {
+        debounceTimer = setTimeout(() => {
+          lastExecuted = Date.now();
+          calculateTokens();
+        }, 500);
+      }
     };
 
     const observer = new MutationObserver(handleInteraction);
