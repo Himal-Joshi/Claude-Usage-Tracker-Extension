@@ -30,13 +30,72 @@ function findRecentsHeader(sidebar: HTMLElement): HTMLElement | null {
   return null;
 }
 
+function getCleanChatTitle(): string {
+  let title = document.title || '';
+  if (title.endsWith(' - Claude')) {
+    title = title.substring(0, title.length - 9);
+  }
+  return title.trim();
+}
+
 function findChatTitleElement(): HTMLElement | null {
-  const headings = document.querySelectorAll('h1, h2, [class*="font-title"], [class*="conversation-title"]');
-  for (const h of headings) {
-    if (!h.closest('nav') && !h.closest('[class*="sidebar"]')) {
-      return h as HTMLElement;
+  if (!window.location.pathname.includes('/chat/')) {
+    return null;
+  }
+
+  // 1. Try stable data-testid first
+  const testIdTitle = document.querySelector('[data-testid="chat-title-button"]');
+  if (testIdTitle && !testIdTitle.closest('nav') && !testIdTitle.closest('[class*="sidebar"]')) {
+    return testIdTitle as HTMLElement;
+  }
+
+  // 2. Try finding the element containing the clean title at the top of the viewport
+  const cleanTitle = getCleanChatTitle();
+  if (cleanTitle && cleanTitle !== 'Claude') {
+    const elements = document.querySelectorAll('button, div[role="button"], h1, h2, [class*="title"], [class*="ConversationHeader"]');
+    for (const el of elements) {
+      if (!el.closest('nav') && !el.closest('[class*="sidebar"]')) {
+        const text = el.textContent?.trim() || '';
+        if (text === cleanTitle || text === cleanTitle + ' v' || text.startsWith(cleanTitle)) {
+          const rect = el.getBoundingClientRect();
+          if (rect.top >= 0 && rect.top < 120) {
+            return el as HTMLElement;
+          }
+        }
+      }
     }
   }
+
+  // 3. Fallback: look for a header ancestor of the Share button
+  const buttons = document.querySelectorAll('button');
+  for (const btn of buttons) {
+    if (btn.textContent?.trim() === 'Share') {
+      let parent = btn.parentElement;
+      while (parent && parent.tagName !== 'BODY') {
+        const titleBtn = parent.querySelector('button, [role="button"], h1, h2');
+        if (titleBtn && titleBtn !== btn) {
+          const text = titleBtn.textContent?.trim() || '';
+          if (text && (text === cleanTitle || text.startsWith(cleanTitle.substring(0, 10)))) {
+            const rect = titleBtn.getBoundingClientRect();
+            if (rect.top >= 0 && rect.top < 120) {
+              return titleBtn as HTMLElement;
+            }
+          }
+        }
+        parent = parent.parentElement;
+      }
+    }
+  }
+
+  // 4. Double fallback: look for headings only within the header or top bar container
+  const header = document.querySelector('header') || document.querySelector('[class*="header"]') || document.querySelector('[class*="topbar"]');
+  if (header && !header.closest('nav') && !header.closest('[class*="sidebar"]')) {
+    const headings = header.querySelectorAll('h1, h2, [class*="font-title"], [class*="conversation-title"]');
+    if (headings.length > 0) {
+      return headings[0] as HTMLElement;
+    }
+  }
+
   return null;
 }
 
@@ -112,31 +171,89 @@ function injectSidebar() {
   root.render(<SidebarApp />);
 }
 
-function findPlusButton(chatBox: HTMLElement): HTMLElement | null {
-  const buttons = Array.from(chatBox.querySelectorAll('button'));
-  for (const btn of buttons) {
-    const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-    if (label.includes('upload') || label.includes('add') || label.includes('attach') || btn.querySelector('input[type="file"]')) {
-      return btn;
+function injectHeaderStats() {
+  if (!window.location.pathname.includes('/chat/')) {
+    const wrapper = document.getElementById('claude-usage-tracker-title-wrapper');
+    if (wrapper) {
+      const children = Array.from(wrapper.childNodes);
+      for (const child of children) {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          const el = child as HTMLElement;
+          if (el.id !== 'claude-usage-tracker-header-root') {
+            wrapper.parentNode?.insertBefore(el, wrapper);
+          }
+        }
+      }
+      wrapper.remove();
+    }
+    const existingRoot = document.getElementById('claude-usage-tracker-header-root');
+    if (existingRoot) {
+      existingRoot.remove();
+    }
+    return;
+  }
+
+  const titleEl = findChatTitleElement();
+  if (!titleEl) return;
+
+  const existingRoot = document.getElementById('claude-usage-tracker-header-root');
+
+  let wrapper = document.getElementById('claude-usage-tracker-title-wrapper');
+  if (wrapper) {
+    if (titleEl.parentNode === wrapper) {
+      if (existingRoot && existingRoot.parentNode === wrapper) {
+        // Wrapper and root already exist. Keep padding updated to align stats text with title text!
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const titleRect = titleEl.getBoundingClientRect();
+        const computedStyle = window.getComputedStyle(titleEl);
+        const paddingLeft = parseFloat(computedStyle.paddingLeft) || 0;
+        const borderLeft = parseFloat(computedStyle.borderLeftWidth) || 0;
+        const textLeft = titleRect.left + paddingLeft + borderLeft;
+        const leftOffset = Math.max(0, textLeft - wrapperRect.left);
+        existingRoot.style.paddingLeft = `${leftOffset}px`;
+        return;
+      }
+    } else {
+      const children = Array.from(wrapper.childNodes);
+      for (const child of children) {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          const el = child as HTMLElement;
+          if (el.id !== 'claude-usage-tracker-header-root') {
+            wrapper.parentNode?.insertBefore(el, wrapper);
+          }
+        }
+      }
+      wrapper.remove();
+      wrapper = null;
+      if (existingRoot) {
+        existingRoot.remove();
+      }
     }
   }
-  return chatBox.querySelector('button');
-}
 
-function injectHeaderStats() {
-  if (document.getElementById('claude-usage-tracker-header-root')) return;
-
-  const chatBox = findChatBoxContainer();
-  if (!chatBox) return;
-
-  const plusButton = findPlusButton(chatBox);
-  if (!plusButton) return;
+  if (!wrapper) {
+    wrapper = document.createElement('div');
+    wrapper.id = 'claude-usage-tracker-title-wrapper';
+    wrapper.className = 'flex flex-col items-start min-w-0';
+    titleEl.parentNode?.insertBefore(wrapper, titleEl);
+    wrapper.appendChild(titleEl);
+  }
 
   const rootElement = document.createElement('div');
   rootElement.id = 'claude-usage-tracker-header-root';
-  rootElement.className = 'inline-flex items-center ml-2.5 my-auto pointer-events-auto';
+  rootElement.className = 'w-full pointer-events-auto';
 
-  plusButton.parentNode?.insertBefore(rootElement, plusButton.nextSibling);
+  // Align stats text with the chat title text on creation
+  const wrapperRect = wrapper.getBoundingClientRect();
+  const titleRect = titleEl.getBoundingClientRect();
+  const computedStyle = window.getComputedStyle(titleEl);
+  const paddingLeft = parseFloat(computedStyle.paddingLeft) || 0;
+  const borderLeft = parseFloat(computedStyle.borderLeftWidth) || 0;
+  const textLeft = titleRect.left + paddingLeft + borderLeft;
+  const leftOffset = Math.max(0, textLeft - wrapperRect.left);
+  rootElement.style.paddingLeft = `${leftOffset}px`;
+
+  wrapper.appendChild(rootElement);
 
   const root = createRoot(rootElement);
   root.render(<HeaderStatsApp />);
