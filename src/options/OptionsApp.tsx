@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, BarChart2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Settings, BarChart2, AlertTriangle, CheckCircle2, ArrowUpRight, Copy, ClipboardCheck, Download } from 'lucide-react';
 import { StorageManager } from '../storage';
 import type { UserSettings, ExtensionState } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -9,6 +9,17 @@ const OptionsApp: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>({ anthropicApiKey: '', claudePlan: 'Free' });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [statsData, setStatsData] = useState<any[]>([]);
+
+  // State for active Claude conversation context
+  const [activeChat, setActiveChat] = useState<{
+    title: string;
+    turns: number;
+    url: string;
+    markdown: string;
+    plainText: string;
+  } | null>(null);
+  const [activeChatLoading, setActiveChatLoading] = useState(true);
+  const [copiedContext, setCopiedContext] = useState(false);
 
   useEffect(() => {
     chrome.storage.local.get('activeTab', (data) => {
@@ -27,7 +38,79 @@ const OptionsApp: React.FC = () => {
       }));
       setStatsData(chartData);
     });
+
+    // Query active tab to check if user is on a Claude.ai chat page
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (tab && tab.id && tab.url && tab.url.includes('claude.ai/chat/')) {
+        chrome.tabs.sendMessage(tab.id, { action: 'get_chat_context' }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.log("No response from content script:", chrome.runtime.lastError);
+            setActiveChatLoading(false);
+            return;
+          }
+          if (response && response.success) {
+            setActiveChat({
+              title: response.title,
+              turns: response.turns,
+              url: tab.url || '',
+              markdown: response.markdown,
+              plainText: response.plainText,
+            });
+          }
+          setActiveChatLoading(false);
+        });
+      } else {
+        setActiveChatLoading(false);
+      }
+    });
   }, []);
+
+  const handleContinueIn = async (destination: 'chatgpt.com' | 'gemini.google.com' | 'grok.com', url: string) => {
+    if (!activeChat) return;
+
+    const pasteText = activeChat.plainText;
+
+    // Save to local storage for the content script to auto-paste
+    await chrome.storage.local.set({
+      pendingPaste: {
+        text: pasteText,
+        destination: destination
+      }
+    });
+
+    // Also copy to clipboard as fallback
+    try {
+      await navigator.clipboard.writeText(pasteText);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+    }
+
+    // Open target website
+    window.open(url, '_blank');
+  };
+
+  const handleCopyContext = async () => {
+    if (!activeChat) return;
+    try {
+      await navigator.clipboard.writeText(activeChat.markdown);
+      setCopiedContext(true);
+      setTimeout(() => setCopiedContext(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy context:', err);
+    }
+  };
+
+  const handleDownloadMD = () => {
+    if (!activeChat) return;
+    const blob = new Blob([activeChat.markdown], { type: 'text/markdown;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    const cleanTitle = activeChat.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'claude-chat';
+    link.download = `${cleanTitle}-${Date.now()}.md`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   const handleSave = async () => {
     setSaveStatus('saving');
@@ -48,6 +131,80 @@ const OptionsApp: React.FC = () => {
         </div>
         <h1 className="text-xl font-bold text-indigo-400 tracking-wide">Claude Tracker</h1>
       </div>
+
+      {/* Continue Chat Section */}
+      {!activeChatLoading && (
+        <div className="bg-[#1e1e2e] p-5 rounded-xl border border-white/5 mb-6 shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-orange-500 to-indigo-500 opacity-60" />
+          
+          <h2 className="text-[10px] font-extrabold uppercase tracking-widest text-orange-400/80 mb-2">
+            Continue This Chat In
+          </h2>
+          
+          {activeChat ? (
+            <div>
+              <div className="flex items-baseline mb-4">
+                <span className="text-sm font-medium text-white italic truncate max-w-[280px]" title={activeChat.title}>
+                  &ldquo;{activeChat.title}&rdquo;
+                </span>
+                <span className="text-xs text-gray-400 ml-2 font-normal">
+                  &bull; {activeChat.turns} {activeChat.turns === 1 ? 'turn' : 'turns'}
+                </span>
+              </div>
+              
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => handleContinueIn('chatgpt.com', 'https://chatgpt.com')}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
+                >
+                  <ArrowUpRight size={13} />
+                  ChatGPT
+                </button>
+                
+                <button
+                  onClick={() => handleContinueIn('gemini.google.com', 'https://gemini.google.com')}
+                  className="bg-[#2d2d3d] hover:bg-[#3b3b52] text-white border border-white/5 font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow"
+                >
+                  <ArrowUpRight size={13} className="text-indigo-400" />
+                  Gemini
+                </button>
+                
+                <button
+                  onClick={() => handleContinueIn('grok.com', 'https://grok.com')}
+                  className="bg-[#2d2d3d] hover:bg-[#3b3b52] text-white border border-white/5 font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow"
+                >
+                  <ArrowUpRight size={13} className="text-emerald-400" />
+                  Grok
+                </button>
+                
+                <button
+                  onClick={handleCopyContext}
+                  className="bg-[#2d2d3d] hover:bg-[#3b3b52] text-white border border-white/5 p-2 rounded-lg transition-colors cursor-pointer relative"
+                  title="Copy Context"
+                >
+                  {copiedContext ? <ClipboardCheck size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                </button>
+                
+                <button
+                  onClick={handleDownloadMD}
+                  className="bg-[#2d2d3d] hover:bg-[#3b3b52] text-white border border-white/5 p-2 rounded-lg transition-colors cursor-pointer"
+                  title="Download Markdown File"
+                >
+                  <Download size={14} />
+                </button>
+              </div>
+              
+              <p className="text-[10px] text-gray-500 mt-2.5 leading-relaxed">
+                Tally opens the destination tab and drops the conversation in automatically &mdash; pasted inline, or attached as a .md file for very long chats.
+              </p>
+            </div>
+          ) : (
+            <div className="text-gray-400 text-xs py-1.5 text-center leading-relaxed">
+              Open a conversation on <a href="https://claude.ai" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline font-semibold">Claude.ai</a> to continue it in other AI models.
+            </div>
+          )}
+        </div>
+      )}
       
       <div className="flex gap-2 mb-6">
         <button 

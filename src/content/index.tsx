@@ -387,6 +387,72 @@ const observer = new MutationObserver(() => {
 
 observer.observe(document.body, { childList: true, subtree: true, characterData: true });
 
+// Listen for message requests from the popup/options page
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'get_chat_context') {
+    try {
+      const title = (document.title || 'Claude Chat').replace(' - Claude', '').trim();
+      
+      const userSelectors = [
+        '.font-user-message',
+        '[data-is-user="true"]',
+        '[data-testid*="user-message"]',
+        '[data-message-author="user"]',
+        '.user-message',
+        '[class*="user-message"]',
+        '[class*="UserMessage"]'
+      ];
+
+      const assistantSelectors = [
+        '[data-testid="assistant-message"]',
+        '[data-message-author="assistant"]',
+        '.assistant-message',
+        '[class*="assistant-message"]',
+        '[class*="AssistantMessage"]'
+      ];
+
+      const userEls = Array.from(document.querySelectorAll(userSelectors.join(', ')));
+      const assistantEls = Array.from(document.querySelectorAll(assistantSelectors.join(', ')));
+
+      const allMessages: { role: 'user' | 'claude'; el: HTMLElement }[] = [];
+      userEls.forEach(el => allMessages.push({ role: 'user', el: el as HTMLElement }));
+      assistantEls.forEach(el => allMessages.push({ role: 'claude', el: el as HTMLElement }));
+
+      allMessages.sort((a, b) => {
+        const position = a.el.compareDocumentPosition(b.el);
+        if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+        if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+        return 0;
+      });
+
+      let markdown = `# ${title}\n\n`;
+      let plainText = ``;
+
+      allMessages.forEach((msg) => {
+        const speaker = msg.role === 'user' ? 'User' : 'Claude';
+        const textContent = msg.el.innerText || msg.el.textContent || '';
+        
+        markdown += `## ${speaker}\n\n${textContent.trim()}\n\n---\n\n`;
+        plainText += `${speaker}:\n${textContent.trim()}\n\n`;
+      });
+
+      const turns = userEls.length;
+
+      sendResponse({
+        success: true,
+        title,
+        turns,
+        markdown: markdown.trim(),
+        plainText: plainText.trim()
+      });
+    } catch (e: any) {
+      sendResponse({ success: false, error: e.message });
+    }
+    return true; // keep message channel open
+  }
+  return false;
+});
+
 const init = () => {
   lastUserMessageCount = getUserMessageCount();
   lastPathname = window.location.pathname;
