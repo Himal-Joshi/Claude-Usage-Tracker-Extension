@@ -9,8 +9,15 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'open_options') {
-    // Open the options page in a new tab or focus if it's already open
-    chrome.runtime.openOptionsPage();
+    // Try to open the extension popup programmatically first
+    if (typeof chrome.action !== 'undefined' && typeof chrome.action.openPopup === 'function') {
+      chrome.action.openPopup().catch((err) => {
+        console.warn("Failed to open popup programmatically, falling back to options page:", err);
+        chrome.runtime.openOptionsPage();
+      });
+    } else {
+      chrome.runtime.openOptionsPage();
+    }
   } else if (message.action === 'get_public_settings') {
     (async () => {
       try {
