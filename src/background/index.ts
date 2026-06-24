@@ -3,6 +3,21 @@ import { encode } from 'gpt-tokenizer';
 
 console.log("Claude Usage Tracker Background Service Worker Started.");
 
+/**
+ * Estimates token count for a given text.
+ * For Unicode/Devanagari/mixed script, a multiplier of 1.5 is used because multi-byte UTF-8 
+ * representations split characters into multiple BPE tokens. For standard ASCII text, 
+ * the standard 4 characters per token heuristic is used.
+ * @param text The input text to estimate tokens for.
+ */
+function estimateTokens(text: string): number {
+  const containsUnicode = /[^\x00-\x7F]/.test(text || '');
+  if (containsUnicode) {
+    return Math.ceil((text || '').length * 1.5);
+  }
+  return Math.ceil((text || '').length / 4);
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log("Extension installed.");
 });
@@ -54,6 +69,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
+        let apiModel = 'claude-3-5-sonnet-latest';
+        if (message.model === 'opus') {
+          apiModel = 'claude-opus-4-5';
+        } else if (message.model === 'haiku') {
+          apiModel = 'claude-haiku-4-5-20251001';
+        } else if (message.model === 'sonnet') {
+          apiModel = 'claude-sonnet-4-5';
+        }
+
         const response = await fetch('https://api.anthropic.com/v1/messages/count_tokens', {
           method: 'POST',
           headers: {
@@ -63,7 +87,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             'anthropic-dangerous-direct-browser-access': 'true'
           },
           body: JSON.stringify({
-            model: 'claude-3-opus-20240229',
+            model: apiModel,
             messages: [{ role: 'user', content: message.text }]
           })
         });
@@ -151,7 +175,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (err) {
       console.error("Token estimation failed", err);
       // Fallback
-      const tokenCount = Math.ceil((message.text || '').length / 4);
+      const tokenCount = estimateTokens(message.text || '');
       sendResponse({ success: true, tokenCount });
     }
     return false; // synchronous response

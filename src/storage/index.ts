@@ -73,25 +73,18 @@ export const StorageManager = {
     await chrome.storage.local.set({ conversations });
   },
 
-  async updateDailyStats(date: string, chatId: string, totalTokens: number, isInitial: boolean): Promise<void> {
-    const data = await chrome.storage.local.get(['stats', 'globalChatMaxTokens']);
+  async updateDailyStats(date: string, chatId: string, inputDelta: number, outputDelta: number): Promise<void> {
+    const data = await chrome.storage.local.get(['stats']);
     const stats = (data.stats as Record<string, DailyStats>) || {};
-    const globalChatMaxTokens = (data.globalChatMaxTokens as Record<string, number>) || {};
 
     if (!stats[date]) {
-      stats[date] = { date, inputTokens: 0, outputTokens: 0, conversationsCount: 0, chatMaxTokens: {} };
+      stats[date] = { date, inputTokens: 0, outputTokens: 0, conversationsCount: 0 };
     }
 
-    const prevTokens = globalChatMaxTokens[chatId] || 0;
-    if (totalTokens > prevTokens) {
-      const delta = totalTokens - prevTokens;
-      // Only attribute to today's stats if it's not the initial load of an existing chat
-      if (!isInitial || prevTokens > 0) {
-        stats[date].inputTokens += delta;
-      }
-      globalChatMaxTokens[chatId] = totalTokens;
-      await chrome.storage.local.set({ stats, globalChatMaxTokens });
-    }
+    stats[date].inputTokens += inputDelta;
+    stats[date].outputTokens += outputDelta;
+    
+    await chrome.storage.local.set({ stats });
   },
 
   async getMessageTimes(): Promise<number[]> {

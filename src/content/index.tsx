@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import ContentApp from './ContentApp';
 import SidebarApp from './SidebarApp';
 import HeaderStatsApp from './HeaderStatsApp';
+import { detectModel } from '../utils/constants';
 import './index.css';
 
 function findSidebar(): HTMLElement | null {
@@ -443,7 +444,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         title,
         turns,
         markdown: markdown.trim(),
-        plainText: plainText.trim()
+        plainText: plainText.trim(),
+        model: detectModel()
       });
     } catch (e: any) {
       sendResponse({ success: false, error: e.message });
