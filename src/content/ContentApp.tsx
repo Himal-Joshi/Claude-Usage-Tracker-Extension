@@ -46,12 +46,14 @@ const ContentApp: React.FC = () => {
       ? 'bg-gradient-to-r from-amber-500 to-orange-400'
       : 'bg-gradient-to-r from-orange-500 to-amber-400';
 
+  const disclaimerText = "⚠ Estimate excludes: uploaded files, project knowledge, system prompts, and prompt cache. Actual usage may be higher.";
+
   return (
     <>
       <div className="flex items-center justify-between w-full border-t border-white/[0.06] pt-2 pb-1.5 px-4 text-gray-400 text-[11px] font-sans transition-all select-none">
         {/* Left Side: Session & Today */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 cursor-help" title={disclaimerText}>
             <span className="font-semibold text-[9px] uppercase tracking-wider text-orange-300/70">Session</span>
             <span className="font-mono text-[11px] text-orange-200 font-semibold whitespace-nowrap">{stats.sessionPercentage}%</span>
             
@@ -68,7 +70,7 @@ const ContentApp: React.FC = () => {
 
           <span className="text-white/10">│</span>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 cursor-help" title={disclaimerText}>
             <span className="font-semibold text-[9px] uppercase tracking-wider text-gray-500">Today</span>
             <span className="font-mono text-[11px] text-orange-400 font-medium whitespace-nowrap">{todayTotal.toLocaleString()}</span>
           </div>

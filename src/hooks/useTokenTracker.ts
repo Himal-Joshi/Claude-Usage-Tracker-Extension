@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { StorageManager } from '../storage';
+import { detectModel } from '../utils/constants';
+
+const ESTIMATED_OUTPUT_RATIO = 0.6;
 
 function isContextValid(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
@@ -16,9 +19,18 @@ export function useTokenTracker() {
   const [currentChatId, setCurrentChatId] = useState(window.location.pathname);
   const isInitialRef = useRef(true);
 
+  const lastTurnsCountRef = useRef(0);
+  const lastInputTokensRef = useRef(0);
+  const lastOutputTokensRef = useRef(0);
+  const lastTotalTokensRef = useRef(0);
+
   if (window.location.pathname !== currentChatId) {
     setCurrentChatId(window.location.pathname);
     isInitialRef.current = true;
+    lastTurnsCountRef.current = 0;
+    lastInputTokensRef.current = 0;
+    lastOutputTokensRef.current = 0;
+    lastTotalTokensRef.current = 0;
   }
 
   useEffect(() => {
@@ -65,6 +77,39 @@ export function useTokenTracker() {
     let lastExecuted = 0;
     const THROTTLE_INTERVAL = 1000; // Recalculate at most once per second during active updates
     
+    const recordDailyUsage = (tokenCount: number, turnsCount: number) => {
+      const today = new Date().toISOString().split('T')[0];
+      const isInputFocused = document.activeElement?.getAttribute('contenteditable') === 'true' || 
+                            document.activeElement?.tagName === 'TEXTAREA';
+
+      if (isInitialRef.current) {
+        lastTurnsCountRef.current = turnsCount;
+        lastInputTokensRef.current = Math.floor(tokenCount * (1 - ESTIMATED_OUTPUT_RATIO));
+        lastOutputTokensRef.current = Math.ceil(tokenCount * ESTIMATED_OUTPUT_RATIO);
+        lastTotalTokensRef.current = tokenCount;
+        isInitialRef.current = false;
+        return;
+      }
+
+      if (turnsCount > lastTurnsCountRef.current) {
+        const inputDelta = tokenCount;
+        StorageManager.updateDailyStats(today, window.location.pathname, inputDelta, 0).catch(console.error);
+        
+        lastTurnsCountRef.current = turnsCount;
+        lastInputTokensRef.current = tokenCount;
+        lastOutputTokensRef.current = 0;
+        lastTotalTokensRef.current = tokenCount;
+      } else if (turnsCount === lastTurnsCountRef.current && lastInputTokensRef.current > 0 && !isInputFocused) {
+        const currentOutput = Math.max(0, tokenCount - lastInputTokensRef.current);
+        const outputDelta = currentOutput - lastOutputTokensRef.current;
+        if (outputDelta !== 0) {
+          StorageManager.updateDailyStats(today, window.location.pathname, 0, outputDelta).catch(console.error);
+          lastOutputTokensRef.current = currentOutput;
+          lastTotalTokensRef.current = tokenCount;
+        }
+      }
+    };
+
     const calculateTokens = async () => {
       if (!isContextValid()) return;
       // Find input box
@@ -80,25 +125,24 @@ export function useTokenTracker() {
       const hasEmptyStateBoilerplate = containerText.includes('to get started') || containerText.includes("Claude's choice");
       
       if (isNewChatUrl || hasEmptyStateBoilerplate) {
-        // It's a new chat, so ignore all the background "Good evening" boilerplate
-        // Only count what the user is currently typing
         text = inputText;
       } else {
-        // It's an active chat! We can safely use the entire chat container's text.
-        // This makes us immune to Claude changing their message CSS classes.
-        // We'll try to find specific messages first to be clean, but fallback to the whole container.
-        const messageElements = document.querySelectorAll('.font-user-message, .font-claude-message, .prose, [data-is-user], [data-message-author], [data-testid*="message"], .ReactMarkdown');
+        const rawElements = Array.from(document.querySelectorAll('.font-user-message, .font-claude-message, .prose, [data-is-user], [data-message-author], [data-testid*="message"], .ReactMarkdown'));
+        const messageElements = rawElements.filter(el => !rawElements.some(parent => parent !== el && parent.contains(el)));
         
         if (messageElements.length > 0) {
           let messagesText = '';
           messageElements.forEach(el => messagesText += el.textContent + '\n');
           text = messagesText + '\n' + inputText;
         } else {
-          // Bulletproof fallback: just grab the whole chat area's text
           text = containerText;
         }
       }
       
+      const rawUserMessages = Array.from(document.querySelectorAll('.font-user-message, [data-is-user="true"], [data-testid*="user-message"], [data-message-author="user"], .user-message, [class*="user-message"], [class*="UserMessage"]'));
+      const userMessageElements = rawUserMessages.filter(el => !rawUserMessages.some(parent => parent !== el && parent.contains(el)));
+      const turnsCount = userMessageElements.length;
+
       chrome.runtime.sendMessage({ action: 'get_public_settings' }, (response) => {
         if (!response || !response.success) return;
         
@@ -111,7 +155,7 @@ export function useTokenTracker() {
         }
         
         let textToEstimate = text;
-        const TRUNCATE_LIMIT = 200000;
+        const TRUNCATE_LIMIT = 800000; // 4 characters per token * 200,000 tokens limit = 800,000 characters
         if (textToEstimate.length > TRUNCATE_LIMIT) {
           textToEstimate = textToEstimate.substring(0, TRUNCATE_LIMIT);
           setIsTruncated(true);
@@ -126,36 +170,30 @@ export function useTokenTracker() {
           if (response && response.success && currentReqId === requestIdRef.current) {
             setTokens(prev => ({
               ...prev,
-              input: Math.floor(response.tokenCount * 0.4),
-              output: Math.ceil(response.tokenCount * 0.6),
+              input: Math.floor(response.tokenCount * (1 - ESTIMATED_OUTPUT_RATIO)),
+              output: Math.ceil(response.tokenCount * ESTIMATED_OUTPUT_RATIO),
               total: response.tokenCount
             }));
             setIsExact(false);
-            
-            // Record usage in daily analytics
-            const today = new Date().toISOString().split('T')[0];
-            StorageManager.updateDailyStats(today, window.location.pathname, response.tokenCount, isInitialRef.current).catch(console.error);
-            isInitialRef.current = false;
+            recordDailyUsage(response.tokenCount, turnsCount);
           }
         });
         
         if (hasApiKey) {
           clearTimeout(apiDebounceTimer);
           apiDebounceTimer = setTimeout(() => {
-            chrome.runtime.sendMessage({ action: 'count_tokens', text: text.substring(0, 50000) }, (response) => {
+            const detected = detectModel();
+            chrome.runtime.sendMessage({ action: 'count_tokens', text: text.substring(0, 50000), model: detected }, (response) => {
               if (response && response.success && typeof response.tokens === 'number') {
                 if (currentReqId === requestIdRef.current) {
+                  const exactTotal = response.tokens;
                   setTokens({
-                     input: response.tokens,
-                     output: 0,
-                     total: response.tokens
+                     input: Math.floor(exactTotal * (1 - ESTIMATED_OUTPUT_RATIO)),
+                     output: Math.ceil(exactTotal * ESTIMATED_OUTPUT_RATIO),
+                     total: exactTotal
                   });
                   setIsExact(true);
-                  
-                  // Record exact usage in daily analytics
-                  const today = new Date().toISOString().split('T')[0];
-                  StorageManager.updateDailyStats(today, window.location.pathname, response.tokens, isInitialRef.current).catch(console.error);
-                  isInitialRef.current = false;
+                  recordDailyUsage(exactTotal, turnsCount);
                 }
               } else if (response && response.error) {
                 console.error('Failed to fetch exact tokens from background:', response.error);

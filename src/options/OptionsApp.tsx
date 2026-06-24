@@ -3,12 +3,13 @@ import { Settings, BarChart2, AlertTriangle, CheckCircle2, ArrowUpRight, Copy, C
 import { StorageManager } from '../storage';
 import type { UserSettings, ExtensionState } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { RATES } from '../utils/constants';
 
 const OptionsApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'settings' | 'analytics'>('settings');
   const [settings, setSettings] = useState<UserSettings>({ anthropicApiKey: '', claudePlan: 'Free' });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [statsData, setStatsData] = useState<any[]>([]);
+  const [rawStats, setRawStats] = useState<Record<string, any>>({});
 
   // State for active Claude conversation context
   const [activeChat, setActiveChat] = useState<{
@@ -17,6 +18,7 @@ const OptionsApp: React.FC = () => {
     url: string;
     markdown: string;
     plainText: string;
+    model?: string;
   } | null>(null);
   const [activeChatLoading, setActiveChatLoading] = useState(true);
   const [copiedContext, setCopiedContext] = useState(false);
@@ -29,14 +31,7 @@ const OptionsApp: React.FC = () => {
 
     StorageManager.getState().then((state) => {
       setSettings(state.settings);
-      
-      // Transform stats for chart
-      const chartData = Object.values(state.stats).map(stat => ({
-        date: stat.date,
-        tokens: stat.inputTokens + stat.outputTokens,
-        cost: ((stat.inputTokens + stat.outputTokens) / 1000000) * 15 // Roughly $15/M
-      }));
-      setStatsData(chartData);
+      setRawStats(state.stats);
     });
 
     // Query active tab to check if user is on a Claude.ai chat page
@@ -56,6 +51,7 @@ const OptionsApp: React.FC = () => {
               url: tab.url || '',
               markdown: response.markdown,
               plainText: response.plainText,
+              model: response.model,
             });
           }
           setActiveChatLoading(false);
@@ -65,6 +61,15 @@ const OptionsApp: React.FC = () => {
       }
     });
   }, []);
+
+  const activeModel = activeChat?.model || 'sonnet';
+  const rates = RATES[activeModel as keyof typeof RATES] || RATES.sonnet;
+
+  const statsData = Object.values(rawStats).map(stat => ({
+    date: stat.date,
+    tokens: stat.inputTokens + stat.outputTokens,
+    cost: (stat.inputTokens * rates.input + stat.outputTokens * rates.output) / 1000000
+  }));
 
   const handleContinueIn = async (destination: 'chatgpt.com' | 'gemini.google.com' | 'grok.com', url: string) => {
     if (!activeChat) return;
@@ -307,14 +312,14 @@ const OptionsApp: React.FC = () => {
           <h2 className="text-lg font-semibold mb-4 text-white">Usage Analytics</h2>
           
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-[#111118] p-4 rounded-lg border border-white/5 relative overflow-hidden group">
+            <div className="bg-[#111118] p-4 rounded-lg border border-white/5 relative overflow-hidden group cursor-help" title="⚠ Estimate excludes: uploaded files, project knowledge, system prompts, and prompt cache. Actual usage may be higher.">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-50 group-hover:opacity-100 transition-opacity" />
               <div className="text-xs text-gray-500 mb-1">Tokens Tracked</div>
               <div className="text-2xl font-mono text-indigo-400">
                 {statsData.reduce((acc, curr) => acc + curr.tokens, 0).toLocaleString()}
               </div>
             </div>
-            <div className="bg-[#111118] p-4 rounded-lg border border-white/5 relative overflow-hidden group">
+            <div className="bg-[#111118] p-4 rounded-lg border border-white/5 relative overflow-hidden group cursor-help" title="⚠ Estimate excludes: uploaded files, project knowledge, system prompts, and prompt cache. Actual usage may be higher.">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-teal-500 opacity-50 group-hover:opacity-100 transition-opacity" />
               <div className="text-xs text-gray-500 mb-1">Est. Value Used</div>
               <div className="text-2xl font-mono text-emerald-400">
