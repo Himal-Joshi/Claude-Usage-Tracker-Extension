@@ -132,7 +132,7 @@ const OptionsApp: React.FC = () => {
     <div className="w-[500px] min-h-[550px] bg-[#111118] text-gray-200 p-6 font-sans">
       <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
         <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
-          <img src="/public/icon.png" alt="Logo" className="w-5 h-5 opacity-80" onError={(e) => e.currentTarget.style.display='none'} />
+          <img src="/icon.png" alt="Logo" className="w-5 h-5 opacity-80" onError={(e) => e.currentTarget.style.display='none'} />
         </div>
         <h1 className="text-xl font-bold text-indigo-400 tracking-wide">Claude Tracker</h1>
       </div>
