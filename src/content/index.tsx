@@ -394,34 +394,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       const title = (document.title || 'Claude Chat').replace(' - Claude', '').trim();
       
-      const userSelectors = [
-        '.font-user-message',
-        '[data-is-user="true"]',
-        '[data-testid*="user-message"]',
-        '[data-message-author="user"]',
-        '.user-message',
-        '[class*="user-message"]',
-        '[class*="UserMessage"]'
-      ];
-
-      const assistantSelectors = [
-        '.font-claude-message',
-        '[data-testid="assistant-message"]',
-        '[data-message-author="assistant"]',
-        '.assistant-message',
-        '[class*="assistant-message"]',
-        '[class*="AssistantMessage"]'
-      ];
-
-      const rawUserEls = Array.from(document.querySelectorAll(userSelectors.join(', ')));
+      // Use the same selectors that successfully find messages in useTokenTracker
+      const userSelectors = '.font-user-message, [data-is-user="true"], [data-testid*="user-message"], [data-message-author="user"], .user-message, [class*="user-message"], [class*="UserMessage"]';
+      
+      // Combined selectors for ALL messages (user + assistant) — mirrors useTokenTracker.ts
+      const allMessageSelectors = '.font-user-message, .font-claude-message, .prose, [data-is-user], [data-message-author], [data-testid*="message"], .ReactMarkdown';
+      
+      // Step 1: Find all message-like elements and de-duplicate nested ones
+      const rawAllEls = Array.from(document.querySelectorAll(allMessageSelectors));
+      const allEls = rawAllEls.filter(el => !rawAllEls.some(parent => parent !== el && parent.contains(el)));
+      
+      // Step 2: Find user elements (known working selectors)
+      const rawUserEls = Array.from(document.querySelectorAll(userSelectors));
       const userEls = rawUserEls.filter(el => !rawUserEls.some(parent => parent !== el && parent.contains(el)));
-
-      const rawAssistantEls = Array.from(document.querySelectorAll(assistantSelectors.join(', ')));
-      const assistantEls = rawAssistantEls.filter(el => !rawAssistantEls.some(parent => parent !== el && parent.contains(el)));
-
+      const userElSet = new Set(userEls);
+      
+      // Step 3: Classify each element as user or assistant
+      // An element is "user" if it IS a user element or is INSIDE a user element.
+      // Everything else is "assistant".
       const allMessages: { role: 'user' | 'claude'; el: HTMLElement }[] = [];
-      userEls.forEach(el => allMessages.push({ role: 'user', el: el as HTMLElement }));
-      assistantEls.forEach(el => allMessages.push({ role: 'claude', el: el as HTMLElement }));
+      
+      for (const el of allEls) {
+        const isUser = userElSet.has(el) || userEls.some(uel => uel.contains(el));
+        allMessages.push({ role: isUser ? 'user' : 'claude', el: el as HTMLElement });
+      }
 
       allMessages.sort((a, b) => {
         const position = a.el.compareDocumentPosition(b.el);
