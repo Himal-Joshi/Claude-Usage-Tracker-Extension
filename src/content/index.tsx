@@ -405,6 +405,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ];
 
       const assistantSelectors = [
+        '.font-claude-message',
         '[data-testid="assistant-message"]',
         '[data-message-author="assistant"]',
         '.assistant-message',
@@ -412,8 +413,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         '[class*="AssistantMessage"]'
       ];
 
-      const userEls = Array.from(document.querySelectorAll(userSelectors.join(', ')));
-      const assistantEls = Array.from(document.querySelectorAll(assistantSelectors.join(', ')));
+      const rawUserEls = Array.from(document.querySelectorAll(userSelectors.join(', ')));
+      const userEls = rawUserEls.filter(el => !rawUserEls.some(parent => parent !== el && parent.contains(el)));
+
+      const rawAssistantEls = Array.from(document.querySelectorAll(assistantSelectors.join(', ')));
+      const assistantEls = rawAssistantEls.filter(el => !rawAssistantEls.some(parent => parent !== el && parent.contains(el)));
 
       const allMessages: { role: 'user' | 'claude'; el: HTMLElement }[] = [];
       userEls.forEach(el => allMessages.push({ role: 'user', el: el as HTMLElement }));
