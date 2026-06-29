@@ -135,7 +135,7 @@ const OptionsApp: React.FC = () => {
       <div className="p-5 border-b border-white/[0.06] bg-gradient-to-b from-white/[0.02] to-transparent flex justify-between items-start">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20">
-            <img src="/icon128.png" alt="Logo" className="w-6 h-6 opacity-80" onError={(e) => e.currentTarget.style.display='none'} />
+            <img src="/icon.png" alt="Logo" className="w-6 h-6 opacity-80" onError={(e) => e.currentTarget.style.display='none'} />
           </div>
           <div>
             <h1 className="text-lg font-bold text-gray-100 tracking-wide">Claude Tracker</h1>
