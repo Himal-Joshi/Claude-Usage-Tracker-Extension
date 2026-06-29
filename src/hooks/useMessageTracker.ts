@@ -1,22 +1,30 @@
 import { useState, useEffect } from 'react';
 import { StorageManager } from '../storage';
 import { calculateUsageStats } from '../utils/usageUtils';
+import { isContextValid } from '../utils/chromeHelpers';
+import { STATS_REFRESH_INTERVAL_MS } from '../utils/constants';
+import type { UsageStats } from '../types';
 
-function isContextValid(): boolean {
-  return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
-}
+/** Default usage stats displayed before data is loaded. */
+const DEFAULT_STATS: UsageStats = {
+  sessionCount: 0,
+  sessionLimit: 40,
+  sessionPercentage: 0,
+  weeklyCount: 0,
+  weeklyLimit: 50,
+  weeklyPercentage: 0,
+  messagesLeft: 40,
+  resetTime: 'Not set',
+};
 
+/**
+ * Tracks session and weekly message usage stats, refreshing automatically
+ * on storage changes and at regular intervals for the reset countdown.
+ *
+ * @returns Current usage stats and a `recordMessage` function to log sends.
+ */
 export function useMessageTracker() {
-  const [stats, setStats] = useState({
-    sessionCount: 0,
-    sessionLimit: 40,
-    sessionPercentage: 0,
-    weeklyCount: 0,
-    weeklyLimit: 50,
-    weeklyPercentage: 0,
-    messagesLeft: 40,
-    resetTime: 'Not set'
-  });
+  const [stats, setStats] = useState<UsageStats>(DEFAULT_STATS);
 
   const updateStats = async () => {
     if (!isContextValid()) return;
@@ -25,43 +33,36 @@ export function useMessageTracker() {
       const messageTimes = await StorageManager.getMessageTimes();
       const currentStats = calculateUsageStats(messageTimes, state.settings);
       setStats(currentStats);
-    } catch (e: any) {
-      if (e.message?.includes('context invalidated') || e.message?.includes('Extension context invalidated')) {
+    } catch (e: unknown) {
+      const message = (e as Error).message || '';
+      if (message.includes('context invalidated') || message.includes('Extension context invalidated')) {
         return;
       }
-      console.error('Failed to update stats in useMessageTracker', e);
     }
   };
 
   useEffect(() => {
     updateStats();
 
-    // Set up a timer to update the countdown resetTime every minute
     const interval = setInterval(() => {
-      if (isContextValid()) {
-        updateStats();
-      }
-    }, 60000);
+      if (isContextValid()) updateStats();
+    }, STATS_REFRESH_INTERVAL_MS);
 
-    const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (!isContextValid()) return;
       if (areaName === 'local' && (changes.messageTimes || changes.settings)) {
         updateStats();
       }
     };
-    
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+
+    if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
       chrome.storage.onChanged.addListener(listener);
     }
 
     return () => {
       clearInterval(interval);
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
-        try {
-          chrome.storage.onChanged.removeListener(listener);
-        } catch (e) {
-          // Context might be invalidated, ignore
-        }
+      if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+        try { chrome.storage.onChanged.removeListener(listener); } catch { /* context invalidated */ }
       }
     };
   }, []);

@@ -1,21 +1,39 @@
 import { useState, useEffect, useRef } from 'react';
 import { StorageManager } from '../storage';
 import { detectModel } from '../utils/constants';
+import {
+  ESTIMATED_OUTPUT_RATIO,
+  TRUNCATE_CHAR_LIMIT,
+  API_TEXT_LIMIT,
+  API_DEBOUNCE_MS,
+  PATHNAME_POLL_MS,
+  PRO_CONTEXT_LIMIT,
+  FREE_CONTEXT_LIMIT,
+} from '../utils/constants';
+import { isContextValid, dedupeByAncestor } from '../utils/chromeHelpers';
+import { USER_MESSAGE_SELECTOR_STRING } from '../utils/domConstants';
+import type { DailyStats } from '../types';
 
-const ESTIMATED_OUTPUT_RATIO = 0.6;
+/** Minimum throttle interval between token recalculations (ms). */
+const THROTTLE_INTERVAL_MS = 1000;
 
-function isContextValid(): boolean {
-  return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
-}
+/** CSS selectors for gathering all message content from the DOM. */
+const ALL_MESSAGE_SELECTORS = '.font-user-message, .font-claude-message, .prose, [data-is-user], [data-message-author], [data-testid*="message"], .ReactMarkdown';
 
+/**
+ * Tracks estimated token usage for the current chat session.
+ * Combines local BPE estimation with optional Anthropic API exact counts.
+ *
+ * @returns Token counts, exactness flag, context limit, truncation status, and today's total.
+ */
 export function useTokenTracker() {
   const [tokens, setTokens] = useState({ input: 0, output: 0, total: 0 });
   const [isExact, setIsExact] = useState(false);
   const [isTruncated, setIsTruncated] = useState(false);
-  const [contextLimit, setContextLimit] = useState(200000); // Default
+  const [contextLimit, setContextLimit] = useState(PRO_CONTEXT_LIMIT);
   const [todayTotal, setTodayTotal] = useState(0);
   const requestIdRef = useRef(0);
-  
+
   const [currentChatId, setCurrentChatId] = useState(window.location.pathname);
   const isInitialRef = useRef(true);
 
@@ -24,63 +42,72 @@ export function useTokenTracker() {
   const lastOutputTokensRef = useRef(0);
   const lastTotalTokensRef = useRef(0);
 
-  if (window.location.pathname !== currentChatId) {
-    setCurrentChatId(window.location.pathname);
-    isInitialRef.current = true;
-    lastTurnsCountRef.current = 0;
-    lastInputTokensRef.current = 0;
-    lastOutputTokensRef.current = 0;
-    lastTotalTokensRef.current = 0;
-  }
+  // Detect chat navigation changes via polling
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const pathname = window.location.pathname;
+      if (pathname !== currentChatId) {
+        setCurrentChatId(pathname);
+        isInitialRef.current = true;
+        lastTurnsCountRef.current = 0;
+        lastInputTokensRef.current = 0;
+        lastOutputTokensRef.current = 0;
+        lastTotalTokensRef.current = 0;
+      }
+    }, PATHNAME_POLL_MS);
+    return () => clearInterval(interval);
+  }, [currentChatId]);
 
+  // Track today's total from storage
   useEffect(() => {
     const fetchTodayTotal = async () => {
       if (!isContextValid()) return;
       try {
         const today = new Date().toISOString().split('T')[0];
         const data = await chrome.storage.local.get('stats');
-        const stats = (data.stats as Record<string, any>) || {};
+        const stats = (data.stats as Record<string, DailyStats>) || {};
         if (stats[today]) {
           setTodayTotal(stats[today].inputTokens);
         }
-      } catch (e) {}
+      } catch {
+        // Storage unavailable
+      }
     };
     fetchTodayTotal();
-    
-    const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+
+    const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (!isContextValid()) return;
       if (areaName === 'local' && changes.stats) {
         const today = new Date().toISOString().split('T')[0];
-        const newStats = (changes.stats.newValue as Record<string, any>) || {};
+        const newStats = (changes.stats.newValue as Record<string, DailyStats>) || {};
         if (newStats[today]) {
           setTodayTotal(newStats[today].inputTokens);
         }
       }
     };
-    
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+
+    if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
       chrome.storage.onChanged.addListener(listener);
     }
-    
+
     return () => {
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
-        try {
-          chrome.storage.onChanged.removeListener(listener);
-        } catch (e) {}
+      if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+        try { chrome.storage.onChanged.removeListener(listener); } catch { /* context invalidated */ }
       }
     };
   }, []);
 
+  // Main token calculation effect
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout>;
     let apiDebounceTimer: ReturnType<typeof setTimeout>;
     let lastExecuted = 0;
-    const THROTTLE_INTERVAL = 1000; // Recalculate at most once per second during active updates
-    
+
     const recordDailyUsage = (tokenCount: number, turnsCount: number) => {
       const today = new Date().toISOString().split('T')[0];
-      const isInputFocused = document.activeElement?.getAttribute('contenteditable') === 'true' || 
-                            document.activeElement?.tagName === 'TEXTAREA';
+      const isInputFocused =
+        document.activeElement?.getAttribute('contenteditable') === 'true' ||
+        document.activeElement?.tagName === 'TEXTAREA';
 
       if (isInitialRef.current) {
         lastTurnsCountRef.current = turnsCount;
@@ -92,9 +119,7 @@ export function useTokenTracker() {
       }
 
       if (turnsCount > lastTurnsCountRef.current) {
-        const inputDelta = tokenCount;
-        StorageManager.updateDailyStats(today, window.location.pathname, inputDelta, 0).catch(console.error);
-        
+        StorageManager.updateDailyStats(today, window.location.pathname, tokenCount, 0).catch(() => {});
         lastTurnsCountRef.current = turnsCount;
         lastInputTokensRef.current = tokenCount;
         lastOutputTokensRef.current = 0;
@@ -103,7 +128,7 @@ export function useTokenTracker() {
         const currentOutput = Math.max(0, tokenCount - lastInputTokensRef.current);
         const outputDelta = currentOutput - lastOutputTokensRef.current;
         if (outputDelta !== 0) {
-          StorageManager.updateDailyStats(today, window.location.pathname, 0, outputDelta).catch(console.error);
+          StorageManager.updateDailyStats(today, window.location.pathname, 0, outputDelta).catch(() => {});
           lastOutputTokensRef.current = currentOutput;
           lastTotalTokensRef.current = tokenCount;
         }
@@ -112,52 +137,19 @@ export function useTokenTracker() {
 
     const calculateTokens = async () => {
       if (!isContextValid()) return;
-      // Find input box
-      const inputElement = document.querySelector('div[contenteditable="true"]');
-      const inputText = inputElement?.textContent || '';
-      
-      let text = '';
-      
-      // Determine if it's a new empty chat by checking URL or common empty-state text
-      const isNewChatUrl = window.location.pathname === '/' || window.location.pathname === '/new';
-      const chatContainer = document.querySelector('.flex-1.overflow-hidden') || document.body;
-      const containerText = chatContainer.textContent || '';
-      const hasEmptyStateBoilerplate = containerText.includes('to get started') || containerText.includes("Claude's choice");
-      
-      if (isNewChatUrl || hasEmptyStateBoilerplate) {
-        text = inputText;
-      } else {
-        const rawElements = Array.from(document.querySelectorAll('.font-user-message, .font-claude-message, .prose, [data-is-user], [data-message-author], [data-testid*="message"], .ReactMarkdown'));
-        const messageElements = rawElements.filter(el => !rawElements.some(parent => parent !== el && parent.contains(el)));
-        
-        if (messageElements.length > 0) {
-          let messagesText = '';
-          messageElements.forEach(el => messagesText += el.textContent + '\n');
-          text = messagesText + '\n' + inputText;
-        } else {
-          text = containerText;
-        }
-      }
-      
-      const rawUserMessages = Array.from(document.querySelectorAll('.font-user-message, [data-is-user="true"], [data-testid*="user-message"], [data-message-author="user"], .user-message, [class*="user-message"], [class*="UserMessage"]'));
-      const userMessageElements = rawUserMessages.filter(el => !rawUserMessages.some(parent => parent !== el && parent.contains(el)));
-      const turnsCount = userMessageElements.length;
+
+      const text = gatherConversationText();
+      const turnsCount = countDedupedUserMessages();
 
       chrome.runtime.sendMessage({ action: 'get_public_settings' }, (response) => {
         if (!response || !response.success) return;
-        
+
         const { hasApiKey, claudePlan } = response;
-      
-        if (claudePlan === 'Pro' || claudePlan === 'Team') {
-          setContextLimit(200000); 
-        } else {
-          setContextLimit(100000);
-        }
-        
+        setContextLimit(claudePlan === 'Pro' || claudePlan === 'Team' ? PRO_CONTEXT_LIMIT : FREE_CONTEXT_LIMIT);
+
         let textToEstimate = text;
-        const TRUNCATE_LIMIT = 800000; // 4 characters per token * 200,000 tokens limit = 800,000 characters
-        if (textToEstimate.length > TRUNCATE_LIMIT) {
-          textToEstimate = textToEstimate.substring(0, TRUNCATE_LIMIT);
+        if (textToEstimate.length > TRUNCATE_CHAR_LIMIT) {
+          textToEstimate = textToEstimate.substring(0, TRUNCATE_CHAR_LIMIT);
           setIsTruncated(true);
         } else {
           setIsTruncated(false);
@@ -165,53 +157,53 @@ export function useTokenTracker() {
 
         requestIdRef.current += 1;
         const currentReqId = requestIdRef.current;
-        
-        chrome.runtime.sendMessage({ action: 'estimate_tokens', text: textToEstimate, requestId: currentReqId }, (response) => {
-          if (response && response.success && currentReqId === requestIdRef.current) {
-            setTokens(prev => ({
-              ...prev,
-              input: Math.floor(response.tokenCount * (1 - ESTIMATED_OUTPUT_RATIO)),
-              output: Math.ceil(response.tokenCount * ESTIMATED_OUTPUT_RATIO),
-              total: response.tokenCount
-            }));
-            setIsExact(false);
-            recordDailyUsage(response.tokenCount, turnsCount);
-          }
-        });
-        
+
+        chrome.runtime.sendMessage(
+          { action: 'estimate_tokens', text: textToEstimate, requestId: currentReqId },
+          (estimateResponse) => {
+            if (estimateResponse?.success && currentReqId === requestIdRef.current) {
+              setTokens({
+                input: Math.floor(estimateResponse.tokenCount * (1 - ESTIMATED_OUTPUT_RATIO)),
+                output: Math.ceil(estimateResponse.tokenCount * ESTIMATED_OUTPUT_RATIO),
+                total: estimateResponse.tokenCount,
+              });
+              setIsExact(false);
+              recordDailyUsage(estimateResponse.tokenCount, turnsCount);
+            }
+          },
+        );
+
         if (hasApiKey) {
           clearTimeout(apiDebounceTimer);
           apiDebounceTimer = setTimeout(() => {
             const detected = detectModel();
-            chrome.runtime.sendMessage({ action: 'count_tokens', text: text.substring(0, 50000), model: detected }, (response) => {
-              if (response && response.success && typeof response.tokens === 'number') {
-                if (currentReqId === requestIdRef.current) {
-                  const exactTotal = response.tokens;
+            chrome.runtime.sendMessage(
+              { action: 'count_tokens', text: text.substring(0, API_TEXT_LIMIT), model: detected },
+              (exactResponse) => {
+                if (exactResponse?.success && typeof exactResponse.tokens === 'number' && currentReqId === requestIdRef.current) {
+                  const exactTotal = exactResponse.tokens;
                   setTokens({
-                     input: Math.floor(exactTotal * (1 - ESTIMATED_OUTPUT_RATIO)),
-                     output: Math.ceil(exactTotal * ESTIMATED_OUTPUT_RATIO),
-                     total: exactTotal
+                    input: Math.floor(exactTotal * (1 - ESTIMATED_OUTPUT_RATIO)),
+                    output: Math.ceil(exactTotal * ESTIMATED_OUTPUT_RATIO),
+                    total: exactTotal,
                   });
                   setIsExact(true);
                   recordDailyUsage(exactTotal, turnsCount);
                 }
-              } else if (response && response.error) {
-                console.error('Failed to fetch exact tokens from background:', response.error);
-              }
-            });
-          }, 2000); // Wait 2s of idle before hitting API
+              },
+            );
+          }, API_DEBOUNCE_MS);
         }
       });
     };
 
-    // Calculate immediately
     calculateTokens();
 
     const handleInteraction = () => {
       const now = Date.now();
       clearTimeout(debounceTimer);
-      
-      if (now - lastExecuted >= THROTTLE_INTERVAL) {
+
+      if (now - lastExecuted >= THROTTLE_INTERVAL_MS) {
         lastExecuted = now;
         calculateTokens();
       } else {
@@ -238,4 +230,42 @@ export function useTokenTracker() {
   }, []);
 
   return { tokens, isExact, contextLimit, isTruncated, todayTotal };
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Gathers all visible conversation text from the DOM, combining message
+ * elements with the current input box content.
+ */
+function gatherConversationText(): string {
+  const inputElement = document.querySelector('div[contenteditable="true"]');
+  const inputText = inputElement?.textContent || '';
+
+  const isNewChatUrl = window.location.pathname === '/' || window.location.pathname === '/new';
+  const chatContainer = document.querySelector('.flex-1.overflow-hidden') || document.body;
+  const containerText = chatContainer.textContent || '';
+  const hasEmptyStateBoilerplate = containerText.includes('to get started') || containerText.includes("Claude's choice");
+
+  if (isNewChatUrl || hasEmptyStateBoilerplate) {
+    return inputText;
+  }
+
+  const rawElements = Array.from(document.querySelectorAll(ALL_MESSAGE_SELECTORS));
+  const messageElements = dedupeByAncestor(rawElements);
+
+  if (messageElements.length > 0) {
+    const messagesText = messageElements.map(el => el.textContent).join('\n');
+    return messagesText + '\n' + inputText;
+  }
+
+  return containerText;
+}
+
+/** Counts deduplicated user messages in the current chat. */
+function countDedupedUserMessages(): number {
+  const rawUserMessages = Array.from(document.querySelectorAll(USER_MESSAGE_SELECTOR_STRING));
+  return dedupeByAncestor(rawUserMessages).length;
 }

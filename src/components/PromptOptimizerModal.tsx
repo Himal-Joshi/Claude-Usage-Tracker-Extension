@@ -1,280 +1,259 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sparkles, Copy, Check, AlertTriangle } from 'lucide-react';
+import { X, Loader2, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { OPTIMIZATION_PROFILES, localOptimizePrompt } from '../utils/promptOptimizer';
+import { CLAUDE_INPUT_SELECTOR } from '../utils/domConstants';
+import { COPY_FEEDBACK_DURATION_MS } from '../utils/constants';
 
 interface PromptOptimizerModalProps {
   onClose: () => void;
 }
 
+/**
+ * A modal that allows users to optimize their current prompt using either
+ * local rule-based personas or the Anthropic API (if configured).
+ */
 const PromptOptimizerModal: React.FC<PromptOptimizerModalProps> = ({ onClose }) => {
   const [rawPrompt, setRawPrompt] = useState('');
-  const [selectedProfile, setSelectedProfile] = useState('general');
   const [optimizedPrompt, setOptimizedPrompt] = useState('');
+  const [selectedProfile, setSelectedProfile] = useState('general');
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [hasKey, setHasKey] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [useApi, setUseApi] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isReplaced, setIsReplaced] = useState(false);
 
   useEffect(() => {
-    // Check if user has API key configured
+    // 1. Check API key status
     chrome.runtime.sendMessage({ action: 'get_public_settings' }, (response) => {
       if (response && response.success) {
-        setHasKey(response.hasApiKey);
+        setHasApiKey(response.hasApiKey);
+        setUseApi(response.hasApiKey);
       }
     });
 
-    // Grab text currently in Claude's text input box (if any)
-    const inputElement = document.querySelector(
-      'form div[contenteditable="true"], fieldset div[contenteditable="true"], div[contenteditable="true"]'
-    ) as HTMLDivElement;
+    // 2. Grab current text from the chat input box
+    const inputElement = document.querySelector(CLAUDE_INPUT_SELECTOR);
     if (inputElement) {
       setRawPrompt(inputElement.textContent || '');
     }
   }, []);
 
-  const activeProfile = OPTIMIZATION_PROFILES.find((p) => p.id === selectedProfile) || OPTIMIZATION_PROFILES[0];
+  const handleOptimize = async () => {
+    if (!rawPrompt.trim()) {
+      setError('Please enter a prompt first.');
+      return;
+    }
 
-  const handleAIOptimize = () => {
-    if (!rawPrompt.trim()) return;
     setIsOptimizing(true);
     setError(null);
 
+    const profile = OPTIMIZATION_PROFILES.find((p) => p.id === selectedProfile) || OPTIMIZATION_PROFILES[0];
+
+    if (!useApi) {
+      // Local optimization (instant)
+      const optimized = localOptimizePrompt(rawPrompt, profile.id);
+      setOptimizedPrompt(optimized);
+      setIsOptimizing(false);
+      return;
+    }
+
+    // API optimization
     chrome.runtime.sendMessage(
       {
         action: 'optimize_prompt',
-        systemPrompt: activeProfile.systemPrompt,
-        userPrompt: rawPrompt
+        systemPrompt: profile.systemPrompt,
+        userPrompt: rawPrompt,
       },
       (response) => {
         setIsOptimizing(false);
-        if (response && response.success && response.optimizedText) {
+        if (response && response.success) {
           setOptimizedPrompt(response.optimizedText);
         } else {
-          setError(
-            response?.error || 'Failed to optimize prompt. Please check your network or API Key settings.'
-          );
+          setError(response?.error || 'Failed to optimize prompt. Check your API key.');
         }
       }
     );
   };
 
-  const handleLocalOptimize = () => {
-    if (!rawPrompt.trim()) return;
-    setError(null);
-    const optimized = localOptimizePrompt(rawPrompt, selectedProfile);
-    setOptimizedPrompt(optimized);
-  };
-
-  const handleCopyToClipboard = async () => {
+  const handleCopy = async () => {
     if (!optimizedPrompt) return;
     try {
       await navigator.clipboard.writeText(optimizedPrompt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), COPY_FEEDBACK_DURATION_MS);
     } catch (err) {
-      console.error('Failed to copy text: ', err);
+      console.error('Failed to copy', err);
     }
   };
 
-  const handleUsePrompt = () => {
+  const handleReplace = () => {
     if (!optimizedPrompt) return;
-    
-    const inputElement = document.querySelector(
-      'form div[contenteditable="true"], fieldset div[contenteditable="true"], div[contenteditable="true"]'
-    ) as HTMLDivElement;
+    const inputElement = document.querySelector(CLAUDE_INPUT_SELECTOR) as HTMLElement;
     
     if (inputElement) {
       inputElement.focus();
-      try {
-        // Select all text and replace with optimized version to trigger React states correctly
-        document.execCommand('selectAll', false, undefined);
-        document.execCommand('insertText', false, optimizedPrompt);
-      } catch (err) {
-        console.warn('execCommand failed, using textContent fallback', err);
+      const successful = document.execCommand('insertText', false, optimizedPrompt);
+      if (!successful) {
         inputElement.textContent = optimizedPrompt;
-        inputElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
       }
+      
+      setIsReplaced(true);
+      setTimeout(() => {
+        setIsReplaced(false);
+        onClose();
+      }, 500);
     }
-    onClose();
-  };
-
-  const handleOpenSettings = () => {
-    chrome.runtime.sendMessage({ action: 'open_options' });
   };
 
   return (
-    <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 font-sans text-gray-200">
-      <div 
-        className="bg-[#1e1e2e] border border-white/10 rounded-2xl w-full max-w-[620px] max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 font-sans text-gray-200">
+      <div
+        className="w-full max-w-2xl bg-[#1e1b26] border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        style={{ maxHeight: '90vh' }}
       >
         {/* Header */}
-        <div className="p-5 border-b border-white/5 flex items-center justify-between bg-[#1b1b2a]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.25)]">
-              <Sparkles size={16} />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-white tracking-wide">Prompt Optimizer</h2>
-              <p className="text-[11px] text-gray-400">Structure and refine your prompts for the best results with Claude</p>
-            </div>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] bg-white/[0.02]">
+          <div className="flex items-center gap-2 text-orange-400">
+            <Sparkles size={18} />
+            <h2 className="text-sm font-semibold tracking-wide uppercase text-gray-200">Prompt Optimizer</h2>
           </div>
-          <button 
+          <button
             onClick={onClose}
-            className="p-1.5 hover:bg-white/10 text-gray-400 hover:text-white rounded-lg transition-colors"
+            className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
           >
             <X size={16} />
           </button>
         </div>
 
-        {/* Content Body */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-4 bg-[#141421]/50">
-          
-          {/* Profile Selector */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 block">
-              Optimization Profile
-            </label>
-            <div className="flex rounded-lg bg-[#111118] p-1 gap-1 border border-white/5">
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-5 scrollbar-thin">
+          {/* Engine Selection */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Engine</label>
+            <div className="flex bg-black/20 rounded-lg p-1 border border-white/[0.04]">
+              <button
+                onClick={() => setUseApi(false)}
+                className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                  !useApi ? 'bg-orange-500/20 text-orange-400 shadow-sm' : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                Local (Rule-based)
+              </button>
+              <button
+                onClick={() => setUseApi(true)}
+                disabled={!hasApiKey}
+                title={!hasApiKey ? 'Requires Anthropic API Key in Settings' : ''}
+                className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all cursor-pointer ${
+                  useApi
+                    ? 'bg-orange-500/20 text-orange-400 shadow-sm'
+                    : 'text-gray-400 hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed'
+                }`}
+              >
+                API (AI Rewrite)
+              </button>
+            </div>
+            {!hasApiKey && (
+              <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
+                <AlertCircle size={10} />
+                To use the AI-powered rewrite engine, configure your Anthropic API Key in the extension Settings.
+              </p>
+            )}
+          </div>
+
+          {/* Profile Selection */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Profile</label>
+            <div className="grid grid-cols-2 gap-2">
               {OPTIMIZATION_PROFILES.map((profile) => (
                 <button
                   key={profile.id}
                   onClick={() => setSelectedProfile(profile.id)}
-                  className={`flex-1 py-2 px-1 text-[11px] font-semibold rounded-md transition-all ${
+                  className={`flex flex-col items-start p-3 rounded-xl border text-left transition-all cursor-pointer ${
                     selectedProfile === profile.id
-                      ? 'bg-indigo-600 text-white shadow'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                      ? 'border-orange-500/50 bg-orange-500/10'
+                      : 'border-white/[0.06] bg-black/20 hover:border-white/20'
                   }`}
                 >
-                  {profile.name}
+                  <span className={`text-sm font-semibold ${selectedProfile === profile.id ? 'text-orange-400' : 'text-gray-300'}`}>
+                    {profile.name}
+                  </span>
+                  <span className="text-[10px] text-gray-500 mt-1 leading-relaxed line-clamp-2">
+                    {profile.description}
+                  </span>
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-gray-400 italic px-1">
-              {activeProfile.description}
-            </p>
           </div>
 
-          {/* Raw Prompt Textarea */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between items-center">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
-                Your Raw Prompt
-              </label>
-              <span className="text-[10px] text-gray-500 font-mono">
-                {rawPrompt.length} chars
-              </span>
-            </div>
+          {/* Raw Prompt */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Your Prompt</label>
             <textarea
               value={rawPrompt}
               onChange={(e) => setRawPrompt(e.target.value)}
-              placeholder="Paste or type your prompt here..."
-              className="w-full h-32 bg-[#111118] border border-gray-700 rounded-xl px-4 py-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors resize-none font-sans"
+              className="w-full h-24 bg-black/30 border border-white/[0.06] rounded-xl p-3 text-sm text-gray-300 focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/50 resize-y"
+              placeholder="Enter your prompt here..."
             />
-          </div>
-
-          {/* Optimizer Action Buttons */}
-          <div className="flex gap-3">
-            {hasKey ? (
-              <button
-                onClick={handleAIOptimize}
-                disabled={isOptimizing || !rawPrompt.trim()}
-                className="flex-1 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 disabled:opacity-50 text-white py-2.5 px-4 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/10 cursor-pointer"
-              >
-                {isOptimizing ? (
-                  <>
-                    <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Optimizing via AI...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={13} />
-                    AI Optimize
-                  </>
-                )}
-              </button>
-            ) : (
-              <button
-                onClick={handleOpenSettings}
-                className="flex-1 bg-[#2a1b1b] border border-amber-500/20 hover:border-amber-500/30 text-amber-300 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <AlertTriangle size={13} className="text-amber-400" />
-                Configure API Key for AI Optimization
-              </button>
-            )}
-            
-            <button
-              onClick={handleLocalOptimize}
-              disabled={isOptimizing || !rawPrompt.trim()}
-              className="px-4 py-2.5 bg-white/5 hover:bg-white/10 disabled:opacity-50 border border-white/5 rounded-xl text-xs font-semibold text-gray-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              title="Apply quick formatting templates offline"
-            >
-              Local Optimize
-            </button>
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex gap-2.5 items-start">
-              <AlertTriangle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-[11px] text-red-200/80 leading-relaxed">{error}</p>
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-xl text-xs flex items-start gap-2">
+              <AlertCircle size={14} className="shrink-0 mt-0.5" />
+              <p>{error}</p>
             </div>
           )}
+
+          {/* Action Button */}
+          <button
+            onClick={handleOptimize}
+            disabled={isOptimizing || !rawPrompt.trim()}
+            className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+          >
+            {isOptimizing ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Optimizing...
+              </>
+            ) : (
+              <>
+                <Sparkles size={16} />
+                Optimize Prompt
+              </>
+            )}
+          </button>
 
           {/* Optimized Output */}
           {optimizedPrompt && (
-            <div className="space-y-2 pt-2 border-t border-white/5 animate-in fade-in slide-in-from-bottom-3 duration-300">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                  Optimized Prompt Preview
-                </label>
+            <div className="flex flex-col gap-2 mt-2 pt-5 border-t border-white/[0.06] animate-in fade-in slide-in-from-bottom-2">
+              <label className="text-[11px] font-semibold text-orange-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles size={12} /> Optimized Result
+              </label>
+              <div className="relative">
+                <textarea
+                  readOnly
+                  value={optimizedPrompt}
+                  className="w-full h-40 bg-[#14121a] border border-orange-500/30 rounded-xl p-3 text-sm text-orange-50/90 focus:outline-none resize-y"
+                />
+              </div>
+              <div className="flex gap-2">
                 <button
-                  onClick={handleCopyToClipboard}
-                  className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors font-medium px-2 py-1 rounded bg-indigo-500/5 border border-indigo-500/10 cursor-pointer"
+                  onClick={handleCopy}
+                  className="flex-1 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
                 >
-                  {copied ? (
-                    <>
-                      <Check size={10} className="text-emerald-400" />
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy size={10} />
-                      Copy
-                    </>
-                  )}
+                  {isCopied ? <CheckCircle2 size={16} className="text-green-400" /> : 'Copy Text'}
+                </button>
+                <button
+                  onClick={handleReplace}
+                  className="flex-1 py-2 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/40 text-orange-400 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
+                >
+                  {isReplaced ? <CheckCircle2 size={16} /> : 'Replace in Chat'}
                 </button>
               </div>
-              <textarea
-                value={optimizedPrompt}
-                onChange={(e) => setOptimizedPrompt(e.target.value)}
-                className="w-full h-40 bg-[#111118] border border-emerald-500/20 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-emerald-500 transition-colors resize-none font-sans"
-              />
             </div>
           )}
         </div>
-
-        {/* Footer Actions */}
-        {optimizedPrompt && (
-          <div className="p-4 border-t border-white/5 bg-[#1b1b2a] flex justify-end gap-3">
-            <button
-              onClick={() => setOptimizedPrompt('')}
-              className="px-4 py-2 hover:bg-white/5 text-gray-400 hover:text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
-            >
-              Reset
-            </button>
-            <button
-              onClick={handleUsePrompt}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-5 rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-lg shadow-emerald-600/10 cursor-pointer"
-            >
-              <Check size={13} />
-              Use Optimized Prompt
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

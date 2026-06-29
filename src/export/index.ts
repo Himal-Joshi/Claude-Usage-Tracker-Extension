@@ -1,10 +1,10 @@
-import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
-import type { Conversation, Message } from '../types';
+import type { Conversation } from '../types';
 
+/** Utilities for exporting Claude conversations to Markdown and ZIP formats. */
 export const Exporter = {
   /**
-   * Convert conversation to markdown string
+   * Converts a conversation to a formatted Markdown string with
+   * metadata header, message sections, and horizontal rules.
    */
   generateMarkdown(conv: Conversation): string {
     let md = `# Claude Conversation: ${conv.title || 'Untitled'}\n\n`;
@@ -20,37 +20,38 @@ export const Exporter = {
     return md;
   },
 
-  /**
-   * Export conversation as a single markdown file
-   */
-  exportMarkdown(conv: Conversation) {
+  /** Exports a conversation as a single downloadable Markdown file. */
+  exportMarkdown(conv: Conversation): void {
+    const { saveAs } = require('file-saver');
     const md = this.generateMarkdown(conv);
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
     saveAs(blob, `claude-chat-${Date.now()}.md`);
   },
 
   /**
-   * Export conversation and any artifacts as a ZIP file
+   * Exports a conversation and its artifacts as a ZIP archive.
+   * The conversation Markdown is placed at root; artifacts are grouped
+   * in an `artifacts/` subdirectory.
    */
-  async exportZip(conv: Conversation) {
+  async exportZip(conv: Conversation): Promise<void> {
+    const JSZip = (await import('jszip')).default;
+    const { saveAs } = await import('file-saver');
+
     const zip = new JSZip();
-    
-    // Add main conversation markdown
     zip.file('conversation.md', this.generateMarkdown(conv));
 
-    // Create artifacts folder
     const artifactsFolder = zip.folder('artifacts');
     if (artifactsFolder) {
-      conv.messages.forEach(msg => {
+      for (const msg of conv.messages) {
         if (msg.artifacts && msg.artifacts.length > 0) {
-          msg.artifacts.forEach(art => {
+          for (const art of msg.artifacts) {
             artifactsFolder.file(art.name, art.content);
-          });
+          }
         }
-      });
+      }
     }
 
     const content = await zip.generateAsync({ type: 'blob' });
     saveAs(content, `claude-export-${Date.now()}.zip`);
-  }
+  },
 };

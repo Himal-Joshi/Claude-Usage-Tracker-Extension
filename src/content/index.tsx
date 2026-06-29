@@ -3,128 +3,31 @@ import { createRoot } from 'react-dom/client';
 import ContentApp from './ContentApp';
 import SidebarApp from './SidebarApp';
 import HeaderStatsApp from './HeaderStatsApp';
-import { detectModel } from '../utils/constants';
+import { isContextValid, dedupeByAncestor } from '../utils/chromeHelpers';
+import {
+  USER_MESSAGE_SELECTORS,
+  USER_MESSAGE_SELECTOR_STRING,
+  ASSISTANT_MESSAGE_SELECTORS,
+} from '../utils/domConstants';
+import {
+  RECORD_DEBOUNCE_MS,
+  RECENT_INPUT_THRESHOLD_MS,
+  detectModel,
+} from '../utils/constants';
+import { htmlToMarkdown, htmlToPlainText } from '../utils/domParser';
+import {
+  findSidebar,
+  findRecentsHeader,
+  getCleanChatTitle,
+  findChatTitleElement,
+  findChatBoxContainer,
+  findToolbarElement,
+} from '../utils/domFinders';
 import './index.css';
 
-function findSidebar(): HTMLElement | null {
-  const navs = document.querySelectorAll('nav');
-  for (const nav of navs) {
-    if (
-      nav.textContent?.includes('New chat') ||
-      nav.textContent?.includes('Chats') ||
-      nav.textContent?.includes('Recents') ||
-      nav.textContent?.includes('Usage')
-    ) {
-      return nav as HTMLElement;
-    }
-  }
-  return (document.querySelector('nav') || document.querySelector('[class*="sidebar"]') || document.querySelector('[class*="navigation"]')) as HTMLElement | null;
-}
-
-function findRecentsHeader(sidebar: HTMLElement): HTMLElement | null {
-  const elements = sidebar.querySelectorAll('*');
-  for (const el of elements) {
-    if (el.children.length === 0 && el.textContent?.trim() === 'Recents') {
-      return el as HTMLElement;
-    }
-  }
-  return null;
-}
-
-function getCleanChatTitle(): string {
-  let title = document.title || '';
-  if (title.endsWith(' - Claude')) {
-    title = title.substring(0, title.length - 9);
-  }
-  return title.trim();
-}
-
-function findChatTitleElement(): HTMLElement | null {
-  if (!window.location.pathname.includes('/chat/')) {
-    return null;
-  }
-
-  // 1. Try stable data-testid first
-  const testIdTitle = document.querySelector('[data-testid="chat-title-button"]');
-  if (testIdTitle && !testIdTitle.closest('nav') && !testIdTitle.closest('[class*="sidebar"]')) {
-    return testIdTitle as HTMLElement;
-  }
-
-  // 2. Try finding the element containing the clean title at the top of the viewport
-  const cleanTitle = getCleanChatTitle();
-  if (cleanTitle && cleanTitle !== 'Claude') {
-    const elements = document.querySelectorAll('button, div[role="button"], h1, h2, [class*="title"], [class*="ConversationHeader"]');
-    for (const el of elements) {
-      if (!el.closest('nav') && !el.closest('[class*="sidebar"]')) {
-        const text = el.textContent?.trim() || '';
-        if (text === cleanTitle || text === cleanTitle + ' v' || text.startsWith(cleanTitle)) {
-          const rect = el.getBoundingClientRect();
-          if (rect.top >= 0 && rect.top < 120) {
-            return el as HTMLElement;
-          }
-        }
-      }
-    }
-  }
-
-  // 3. Fallback: look for a header ancestor of the Share button
-  const buttons = document.querySelectorAll('button');
-  for (const btn of buttons) {
-    if (btn.textContent?.trim() === 'Share') {
-      let parent = btn.parentElement;
-      while (parent && parent.tagName !== 'BODY') {
-        const titleBtn = parent.querySelector('button, [role="button"], h1, h2');
-        if (titleBtn && titleBtn !== btn) {
-          const text = titleBtn.textContent?.trim() || '';
-          if (text && (text === cleanTitle || text.startsWith(cleanTitle.substring(0, 10)))) {
-            const rect = titleBtn.getBoundingClientRect();
-            if (rect.top >= 0 && rect.top < 120) {
-              return titleBtn as HTMLElement;
-            }
-          }
-        }
-        parent = parent.parentElement;
-      }
-    }
-  }
-
-  // 4. Double fallback: look for headings only within the header or top bar container
-  const header = document.querySelector('header') || document.querySelector('[class*="header"]') || document.querySelector('[class*="topbar"]');
-  if (header && !header.closest('nav') && !header.closest('[class*="sidebar"]')) {
-    const headings = header.querySelectorAll('h1, h2, [class*="font-title"], [class*="conversation-title"]');
-    if (headings.length > 0) {
-      return headings[0] as HTMLElement;
-    }
-  }
-
-  return null;
-}
-
-function findChatBoxContainer(): HTMLElement | null {
-  const input = document.querySelector('div[contenteditable="true"], textarea');
-  if (!input) return null;
-
-  let el = input.parentElement;
-  while (el && el.tagName !== 'FIELDSET' && el.tagName !== 'FORM') {
-    if (el.querySelector('button, [role="button"]')) {
-      return el;
-    }
-    el = el.parentElement;
-  }
-
-  return input.parentElement;
-}
-
-function findToolbarElement(chatBox: HTMLElement): HTMLElement | null {
-  const children = Array.from(chatBox.children) as HTMLElement[];
-  for (let i = children.length - 1; i >= 0; i--) {
-    const child = children[i];
-    if (child.querySelector('button, [role="button"]') && !child.querySelector('div[contenteditable="true"], textarea')) {
-      return child;
-    }
-  }
-  return null;
-}
+// ---------------------------------------------------------------------------
+// Injectors
+// ---------------------------------------------------------------------------
 
 function injectApp() {
   if (document.getElementById('claude-usage-tracker-root')) return;
@@ -198,12 +101,12 @@ function injectHeaderStats() {
   if (!titleEl) return;
 
   const existingRoot = document.getElementById('claude-usage-tracker-header-root');
-
   let wrapper = document.getElementById('claude-usage-tracker-title-wrapper');
+
   if (wrapper) {
     if (titleEl.parentNode === wrapper) {
       if (existingRoot && existingRoot.parentNode === wrapper) {
-        // Wrapper and root already exist. Keep padding updated to align stats text with title text!
+        // Keep padding updated to align stats text with title text
         const wrapperRect = wrapper.getBoundingClientRect();
         const titleRect = titleEl.getBoundingClientRect();
         const computedStyle = window.getComputedStyle(titleEl);
@@ -226,9 +129,7 @@ function injectHeaderStats() {
       }
       wrapper.remove();
       wrapper = null;
-      if (existingRoot) {
-        existingRoot.remove();
-      }
+      if (existingRoot) existingRoot.remove();
     }
   }
 
@@ -244,7 +145,6 @@ function injectHeaderStats() {
   rootElement.id = 'claude-usage-tracker-header-root';
   rootElement.className = 'w-full pointer-events-auto';
 
-  // Align stats text with the chat title text on creation
   const wrapperRect = wrapper.getBoundingClientRect();
   const titleRect = titleEl.getBoundingClientRect();
   const computedStyle = window.getComputedStyle(titleEl);
@@ -260,6 +160,124 @@ function injectHeaderStats() {
   root.render(<HeaderStatsApp />);
 }
 
+// ---------------------------------------------------------------------------
+// Message Context Extraction (Fix: Parse entire container, rely on domParser for skipping chrome)
+// ---------------------------------------------------------------------------
+
+function buildChatContext() {
+  const title = getCleanChatTitle() || 'Claude Chat';
+  
+  // 1. Gather all message elements by role
+  const rawUserEls = Array.from(document.querySelectorAll(USER_MESSAGE_SELECTOR_STRING));
+  const rawAssistantEls = Array.from(document.querySelectorAll(ASSISTANT_MESSAGE_SELECTORS.join(', ')));
+
+  // 2. Deduplicate nodes to get the outermost wrappers
+  let userEls = dedupeByAncestor(rawUserEls);
+  let assistantEls = dedupeByAncestor(rawAssistantEls);
+
+  // 3. Cross-role contamination filter
+  // Remove user elements that contain or are contained by assistant elements (and vice versa)
+  userEls = userEls.filter(uEl => !assistantEls.some(aEl => aEl.contains(uEl) || uEl.contains(aEl)));
+  assistantEls = assistantEls.filter(aEl => !userEls.some(uEl => uEl.contains(aEl) || aEl.contains(uEl)));
+
+  // 4. Parse content
+  const allMessages: { role: 'user' | 'claude'; markdown: string; plainText: string; el: Element }[] = [];
+
+  userEls.forEach((el) => {
+    const markdown = htmlToMarkdown(el as HTMLElement).trim();
+    const plainText = htmlToPlainText(el as HTMLElement).trim();
+    if (markdown || plainText) {
+      allMessages.push({ role: 'user', markdown, plainText, el });
+    }
+  });
+
+  assistantEls.forEach((el) => {
+    const markdown = htmlToMarkdown(el as HTMLElement).trim();
+    const plainText = htmlToPlainText(el as HTMLElement).trim();
+    if (markdown || plainText) {
+      allMessages.push({ role: 'claude', markdown, plainText, el });
+    }
+  });
+
+  // 5. Sort chronologically by DOM position
+  allMessages.sort((a, b) => {
+    const position = a.el.compareDocumentPosition(b.el);
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    return 0;
+  });
+
+  const turns = allMessages.filter((msg) => msg.role === 'user').length;
+  
+  // 6. Build the formatted Markdown
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  
+  let firstAsk = '';
+  if (allMessages.length > 0 && allMessages[0].role === 'user') {
+    const firstLines = allMessages[0].plainText.split('\n').filter(l => l.trim().length > 0);
+    firstAsk = firstLines.slice(0, 3).join(' ').substring(0, 150);
+    if (allMessages[0].plainText.length > 150) firstAsk += '...';
+  }
+
+  let lastAssistant = '';
+  for (let i = allMessages.length - 1; i >= 0; i--) {
+    if (allMessages[i].role === 'claude') {
+      const lastLines = allMessages[i].plainText.split('\n').filter(l => l.trim().length > 0);
+      lastAssistant = lastLines.slice(0, 3).join(' ').substring(0, 150);
+      if (allMessages[i].plainText.length > 150) lastAssistant += '...';
+      break;
+    }
+  }
+
+  let markdown = `# Conversation handoff from Claude (claude.ai)\n\n`;
+  markdown += `**Title:** ${title}  ·  **Started:** ${dateStr}  ·  **Turns:** ${turns}\n\n`;
+  markdown += `## Briefing\n\n`;
+  markdown += `You are continuing a working session that began in Claude. Read the briefing, the artefacts, and the recent turns below. Pick up where the previous assistant left off — don't re-introduce yourself, match the user's working style.\n\n`;
+  
+  if (firstAsk) {
+    markdown += `**Original ask:**\n> ${firstAsk}\n\n`;
+  }
+  
+  if (lastAssistant) {
+    markdown += `**Where the previous assistant left off:**\n> ${lastAssistant}\n\n`;
+  }
+  
+  markdown += `---\n\n## Conversation (${turns} turns)\n\n`;
+
+  let plainText = `Title: ${title}\nTurns: ${turns}\n\n`;
+
+  allMessages.forEach((msg) => {
+    const speaker = msg.role === 'user' ? 'User' : 'Assistant';
+    markdown += `**${speaker}:**\n${msg.markdown}\n\n`;
+    plainText += `${speaker}:\n${msg.plainText}\n\n`;
+  });
+
+  const cleanMarkdown = markdown.trim().replace(/\n{3,}/g, '\n\n');
+  const cleanPlainText = plainText.trim().replace(/\n{3,}/g, '\n\n');
+
+  return { title, turns, markdown: cleanMarkdown, plainText: cleanPlainText, model: detectModel() };
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (!isContextValid()) return false;
+  
+  if (message.action === 'get_chat_context') {
+    try {
+      const data = buildChatContext();
+      sendResponse({ success: true, ...data });
+    } catch (e: unknown) {
+      sendResponse({ success: false, error: (e as Error).message });
+    }
+    return true; // keep channel open for async response
+  }
+  
+  return false;
+});
+
+// ---------------------------------------------------------------------------
+// Input Tracking (Message Sent)
+// ---------------------------------------------------------------------------
+
 function getInputValue(): string {
   const inputElement = document.querySelector('div[contenteditable="true"], textarea');
   if (!inputElement) return '';
@@ -270,16 +288,8 @@ function getInputValue(): string {
 }
 
 function getUserMessageCount(): number {
-  const selectors = [
-    '.font-user-message',
-    '[data-is-user="true"]',
-    '[data-testid*="user-message"]',
-    '[data-message-author="user"]',
-    '.user-message',
-    '[class*="user-message"]',
-    '[class*="UserMessage"]'
-  ];
-  return document.querySelectorAll(selectors.join(', ')).length;
+  const raw = Array.from(document.querySelectorAll(USER_MESSAGE_SELECTOR_STRING));
+  return dedupeByAncestor(raw).length;
 }
 
 let lastUserMessageCount = 0;
@@ -288,14 +298,10 @@ let lastInputTime = 0;
 let lastInputValue = '';
 let lastRecordedTime = 0;
 
-function isContextValid(): boolean {
-  return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
-}
-
 function recordMessageSent() {
   if (!isContextValid()) return;
   const now = Date.now();
-  if (now - lastRecordedTime > 2000) {
+  if (now - lastRecordedTime > RECORD_DEBOUNCE_MS) {
     lastRecordedTime = now;
     chrome.runtime.sendMessage({ action: 'record_message_sent' });
   }
@@ -313,13 +319,12 @@ function checkMessageSending() {
 
   if (currentPathname !== lastPathname) {
     const wasNewChat = lastPathname === '/' || lastPathname === '/new' || lastPathname.includes('/new');
-    const hadRecentInput = (Date.now() - lastInputTime < 4000) || lastInputValue.trim().length > 0;
-    
+    const hadRecentInput = Date.now() - lastInputTime < RECENT_INPUT_THRESHOLD_MS || lastInputValue.trim().length > 0;
+
     if (wasNewChat && hadRecentInput) {
       recordMessageSent();
     }
-    
-    // Reset inputs
+
     lastInputTime = 0;
     lastInputValue = '';
     lastPathname = currentPathname;
@@ -328,11 +333,10 @@ function checkMessageSending() {
   }
 
   if (currentCount > lastUserMessageCount) {
-    const hadRecentInput = (Date.now() - lastInputTime < 4000) || lastInputValue.trim().length > 0;
+    const hadRecentInput = Date.now() - lastInputTime < RECENT_INPUT_THRESHOLD_MS || lastInputValue.trim().length > 0;
     if (hadRecentInput) {
       recordMessageSent();
     }
-    // Reset inputs
     lastInputTime = 0;
     lastInputValue = '';
   }
@@ -340,120 +344,47 @@ function checkMessageSending() {
   lastUserMessageCount = currentCount;
 }
 
-// Keydown and click listeners to catch direct submissions in real-time
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    const target = e.target as HTMLElement;
-    if (target.isContentEditable || target.tagName === 'TEXTAREA') {
-      const val = getInputValue();
-      if (val.trim().length > 0) {
-        recordMessageSent();
+document.addEventListener(
+  'keydown',
+  (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const target = e.target as HTMLElement;
+      if (target.isContentEditable || target.tagName === 'TEXTAREA') {
+        if (getInputValue().trim().length > 0) recordMessageSent();
       }
     }
-  }
-}, true);
+  },
+  true
+);
 
-document.addEventListener('click', (e) => {
-  const target = e.target as HTMLElement;
-  const button = target.closest('button');
-  if (button) {
-    const label = (button.getAttribute('aria-label') || '').toLowerCase();
-    const isUpload = label.includes('upload') || label.includes('add') || label.includes('attach') || button.querySelector('input[type="file"]');
-    const isModel = label.includes('model') || label.includes('version') || label.includes('sonnet') || label.includes('opus') || label.includes('haiku');
-    const isVoice = label.includes('mic') || label.includes('voice') || label.includes('audio') || label.includes('speech');
-    const isExtension = button.closest('#claude-usage-tracker-root') || button.closest('#claude-usage-tracker-header-root');
-    
-    if (!isUpload && !isModel && !isVoice && !isExtension) {
-      const val = getInputValue();
-      if (val.trim().length > 0) {
-        recordMessageSent();
+document.addEventListener(
+  'click',
+  (e) => {
+    const target = e.target as HTMLElement;
+    const button = target.closest('button');
+    if (button) {
+      const label = (button.getAttribute('aria-label') || '').toLowerCase();
+      const isUpload = label.includes('upload') || label.includes('add') || label.includes('attach') || button.querySelector('input[type="file"]');
+      const isModel = label.includes('model') || label.includes('version') || label.includes('sonnet') || label.includes('opus') || label.includes('haiku');
+      const isVoice = label.includes('mic') || label.includes('voice') || label.includes('audio') || label.includes('speech');
+      const isExtension = button.closest('#claude-usage-tracker-root') || button.closest('#claude-usage-tracker-header-root');
+
+      if (!isUpload && !isModel && !isVoice && !isExtension) {
+        if (getInputValue().trim().length > 0) recordMessageSent();
       }
     }
-  }
-}, true);
+  },
+  true
+);
 
 const observer = new MutationObserver(() => {
-  if (!document.getElementById('claude-usage-tracker-root')) {
-    injectApp();
-  }
-  if (!document.getElementById('claude-usage-tracker-sidebar-root')) {
-    injectSidebar();
-  }
-  if (!document.getElementById('claude-usage-tracker-header-root')) {
-    injectHeaderStats();
-  }
-
+  if (!document.getElementById('claude-usage-tracker-root')) injectApp();
+  if (!document.getElementById('claude-usage-tracker-sidebar-root')) injectSidebar();
+  if (!document.getElementById('claude-usage-tracker-header-root')) injectHeaderStats();
   checkMessageSending();
 });
 
 observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-
-// Listen for message requests from the popup/options page
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'get_chat_context') {
-    try {
-      const title = (document.title || 'Claude Chat').replace(' - Claude', '').trim();
-      
-      const userSelectors = [
-        '.font-user-message',
-        '[data-is-user="true"]',
-        '[data-testid*="user-message"]',
-        '[data-message-author="user"]',
-        '.user-message',
-        '[class*="user-message"]',
-        '[class*="UserMessage"]'
-      ];
-
-      const assistantSelectors = [
-        '[data-testid="assistant-message"]',
-        '[data-message-author="assistant"]',
-        '.assistant-message',
-        '[class*="assistant-message"]',
-        '[class*="AssistantMessage"]'
-      ];
-
-      const userEls = Array.from(document.querySelectorAll(userSelectors.join(', ')));
-      const assistantEls = Array.from(document.querySelectorAll(assistantSelectors.join(', ')));
-
-      const allMessages: { role: 'user' | 'claude'; el: HTMLElement }[] = [];
-      userEls.forEach(el => allMessages.push({ role: 'user', el: el as HTMLElement }));
-      assistantEls.forEach(el => allMessages.push({ role: 'claude', el: el as HTMLElement }));
-
-      allMessages.sort((a, b) => {
-        const position = a.el.compareDocumentPosition(b.el);
-        if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-        if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-        return 0;
-      });
-
-      let markdown = `# ${title}\n\n`;
-      let plainText = ``;
-
-      allMessages.forEach((msg) => {
-        const speaker = msg.role === 'user' ? 'User' : 'Claude';
-        const textContent = msg.el.innerText || msg.el.textContent || '';
-        
-        markdown += `## ${speaker}\n\n${textContent.trim()}\n\n---\n\n`;
-        plainText += `${speaker}:\n${textContent.trim()}\n\n`;
-      });
-
-      const turns = userEls.length;
-
-      sendResponse({
-        success: true,
-        title,
-        turns,
-        markdown: markdown.trim(),
-        plainText: plainText.trim(),
-        model: detectModel()
-      });
-    } catch (e: any) {
-      sendResponse({ success: false, error: e.message });
-    }
-    return true; // keep message channel open
-  }
-  return false;
-});
 
 const init = () => {
   lastUserMessageCount = getUserMessageCount();
