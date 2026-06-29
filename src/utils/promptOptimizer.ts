@@ -1,3 +1,4 @@
+/** Configuration for a prompt optimization strategy. */
 export interface OptimizationProfile {
   id: string;
   name: string;
@@ -5,6 +6,7 @@ export interface OptimizationProfile {
   systemPrompt: string;
 }
 
+/** Available optimization profiles for different use cases. */
 export const OPTIMIZATION_PROFILES: OptimizationProfile[] = [
   {
     id: 'general',
@@ -20,7 +22,7 @@ Follow these guidelines:
 4. Output Format: Explicitly state the desired format, style, and structure of the output.
 5. Conciseness: Keep the prompt clean, professional, and action-oriented.
 
-Provide ONLY the optimized prompt. Do not include any introductory text, conversation filler, or code block wrappers. Return the raw text of the optimized prompt only.`
+Provide ONLY the optimized prompt. Do not include any introductory text, conversation filler, or code block wrappers. Return the raw text of the optimized prompt only.`,
   },
   {
     id: 'coding',
@@ -35,7 +37,7 @@ Follow these guidelines:
 4. Output Specifications: Specify whether the output should contain full source files, only changed snippets, and detailed explanations of the implementation.
 5. Testing: Suggest checking for edge cases and writing unit tests if relevant.
 
-Provide ONLY the optimized prompt. Do not include any introductory text, conversation filler, or code block wrappers. Return the raw text of the optimized prompt only.`
+Provide ONLY the optimized prompt. Do not include any introductory text, conversation filler, or code block wrappers. Return the raw text of the optimized prompt only.`,
   },
   {
     id: 'creative',
@@ -49,7 +51,7 @@ Follow these guidelines:
 3. Avoid AI Tropes: Explicitly instruct Claude to avoid generic AI vocabulary, predictable structures, and flowery filler.
 4. Form & Layout: Define clear structures (e.g. number of paragraphs, format like newsletter/script/dialogue).
 
-Provide ONLY the optimized prompt. Do not include any introductory text, conversation filler, or code block wrappers. Return the raw text of the optimized prompt only.`
+Provide ONLY the optimized prompt. Do not include any introductory text, conversation filler, or code block wrappers. Return the raw text of the optimized prompt only.`,
   },
   {
     id: 'logic',
@@ -63,55 +65,62 @@ Follow these guidelines:
 3. Multiple Perspectives: Ask Claude to compare different viewpoints, arguments, or hypotheses objectively.
 4. Evidence-Based: Direct Claude to prioritize evidence, logic, and data over speculative assertions.
 
-Provide ONLY the optimized prompt. Do not include any introductory text, conversation filler, or code block wrappers. Return the raw text of the optimized prompt only.`
-  }
+Provide ONLY the optimized prompt. Do not include any introductory text, conversation filler, or code block wrappers. Return the raw text of the optimized prompt only.`,
+  },
 ];
 
+// ---------------------------------------------------------------------------
+// Persona and formatting suffix maps for offline optimization
+// ---------------------------------------------------------------------------
+
+/** Role/persona instructions keyed by profile ID. */
+const PERSONA_MAP: Record<string, string> = {
+  general:  'You are a helpful, expert AI assistant.',
+  coding:   'You are an expert software engineer. Solve this programming task following clean code principles, handling edge cases and errors gracefully.',
+  creative: 'You are a skilled creative writer and editor. Craft a response that is engaging, rich in detail, and has a compelling tone.',
+  logic:    'You are a rigorous analyst and logician. Approach this question objectively and analyze it step-by-step.',
+};
+
+/** Additional formatting instructions appended per profile. */
+const FORMATTING_SUFFIX_MAP: Record<string, string> = {
+  coding: `\n\n<formatting>
+Please structure your response as follows:
+1. **Approach Summary**: A brief bullet-point summary of your solution.
+2. **Code**: Complete, modular, and commented code blocks.
+3. **Usage & Verification**: A quick example showing how to run/test the code.
+</formatting>`,
+  logic: `\n\n<thinking_process>
+Before writing the final answer, please reason through the problem step-by-step in a <thinking> block. Analyze your assumptions and outline any logical leaps.
+</thinking_process>`,
+  creative: `\n\n<writing_guidelines>
+- Avoid generic, flowery intros and typical AI transitions.
+- Focus on showing rather than telling, using concrete details.
+- Align the style and vocabulary with the context of the prompt.
+</writing_guidelines>`,
+  general: `\n\n<formatting>
+Provide a structured, direct, and well-organized response with clear headers and markdown formatting.
+</formatting>`,
+};
+
 /**
- * Apply local, rule-based formatting to a prompt offline.
- * This does not use an LLM, but structures the prompt using XML tags and best practices.
+ * Applies local, rule-based formatting to a prompt without using an LLM.
+ * Wraps the prompt in XML tags with a role persona and profile-specific
+ * formatting instructions.
+ *
+ * @param rawPrompt - The user's unoptimized prompt text.
+ * @param profileId - ID of the optimization profile to apply.
+ * @returns Structured prompt with XML tags and formatting guidelines.
  */
 export function localOptimizePrompt(rawPrompt: string, profileId: string): string {
   const trimmed = rawPrompt.trim();
   if (!trimmed) return '';
 
-  const personaMap: Record<string, string> = {
-    general: 'You are a helpful, expert AI assistant.',
-    coding: 'You are an expert software engineer. Solve this programming task following clean code principles, handling edge cases and errors gracefully.',
-    creative: 'You are a skilled creative writer and editor. Craft a response that is engaging, rich in detail, and has a compelling tone.',
-    logic: 'You are a rigorous analyst and logician. Approach this question objectively and analyze it step-by-step.'
-  };
+  const persona = PERSONA_MAP[profileId] || PERSONA_MAP.general;
+  const suffix = FORMATTING_SUFFIX_MAP[profileId] || FORMATTING_SUFFIX_MAP.general;
 
-  const persona = personaMap[profileId] || personaMap.general;
-  
-  let structured = `<instructions>
+  return `<instructions>
 ${persona}
 Primary task:
 ${trimmed}
-</instructions>`;
-
-  if (profileId === 'coding') {
-    structured += `\n\n<formatting>
-Please structure your response as follows:
-1. **Approach Summary**: A brief bullet-point summary of your solution.
-2. **Code**: Complete, modular, and commented code blocks.
-3. **Usage & Verification**: A quick example showing how to run/test the code.
-</formatting>`;
-  } else if (profileId === 'logic') {
-    structured += `\n\n<thinking_process>
-Before writing the final answer, please reason through the problem step-by-step in a <thinking> block. Analyze your assumptions and outline any logical leaps.
-</thinking_process>`;
-  } else if (profileId === 'creative') {
-    structured += `\n\n<writing_guidelines>
-- Avoid generic, flowery intros and typical AI transitions.
-- Focus on showing rather than telling, using concrete details.
-- Align the style and vocabulary with the context of the prompt.
-</writing_guidelines>`;
-  } else {
-    structured += `\n\n<formatting>
-Provide a structured, direct, and well-organized response with clear headers and markdown formatting.
-</formatting>`;
-  }
-
-  return structured;
+</instructions>${suffix}`;
 }

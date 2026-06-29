@@ -1,40 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, BarChart2, AlertTriangle, CheckCircle2, ArrowUpRight, Copy, ClipboardCheck, Download } from 'lucide-react';
+import { Settings as SettingsIcon, BarChart2, Shield, AlertCircle, CheckCircle2, ChevronRight, MessageSquare, Save, Zap, Copy, ClipboardCheck, Download, RefreshCw } from 'lucide-react';
 import { StorageManager } from '../storage';
-import type { UserSettings, ExtensionState } from '../types';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { RATES } from '../utils/constants';
+import { RATES, TOKENS_PER_MILLION, COPY_FEEDBACK_DURATION_MS } from '../utils/constants';
+import type { UserSettings, DailyStats, ActiveChatContext } from '../types';
+import '../content/index.css';
 
+/**
+ * Options/Popup page for the extension.
+ * Provides settings configuration (API key, limits, plan) and usage analytics.
+ */
 const OptionsApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'settings' | 'analytics'>('settings');
-  const [settings, setSettings] = useState<UserSettings>({ anthropicApiKey: '', claudePlan: 'Free' });
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [rawStats, setRawStats] = useState<Record<string, any>>({});
-
-  // State for active Claude conversation context
-  const [activeChat, setActiveChat] = useState<{
-    title: string;
-    turns: number;
-    url: string;
-    markdown: string;
-    plainText: string;
-    model?: string;
-  } | null>(null);
+  const [settings, setSettings] = useState<UserSettings>({
+    anthropicApiKey: '',
+    rememberApiKey: true,
+    autoBackup: false,
+    claudePlan: 'Free',
+    sessionMessageLimit: 40,
+    weeklyMessageLimit: 50
+  });
+  const [stats, setStats] = useState<Record<string, DailyStats>>({});
+  const [isSaved, setIsSaved] = useState(false);
+  const [activeChat, setActiveChat] = useState<ActiveChatContext | null>(null);
   const [activeChatLoading, setActiveChatLoading] = useState(true);
   const [copiedContext, setCopiedContext] = useState(false);
 
-  useEffect(() => {
-    chrome.storage.local.get('activeTab', (data) => {
-      if (data.activeTab === 'analytics') setActiveTab('analytics');
-      chrome.storage.local.remove('activeTab');
-    });
-
-    StorageManager.getState().then((state) => {
-      setSettings(state.settings);
-      setRawStats(state.stats);
-    });
-
-    // Query active tab to check if user is on a Claude.ai chat page
+  const fetchActiveChat = () => {
+    setActiveChatLoading(true);
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tab = tabs[0];
       if (tab && tab.id && tab.url && tab.url.includes('claude.ai/chat/')) {
@@ -51,7 +43,7 @@ const OptionsApp: React.FC = () => {
               url: tab.url || '',
               markdown: response.markdown,
               plainText: response.plainText,
-              model: response.model,
+              model: response.model
             });
           }
           setActiveChatLoading(false);
@@ -60,39 +52,59 @@ const OptionsApp: React.FC = () => {
         setActiveChatLoading(false);
       }
     });
+  };
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const state = await StorageManager.getState();
+        setSettings(state.settings);
+        setStats(state.stats);
+        
+        fetchActiveChat();
+      } catch (err) {
+        console.error('Failed to load extension state:', err);
+      }
+    };
+    loadData();
   }, []);
 
-  const activeModel = activeChat?.model || 'sonnet';
-  const rates = RATES[activeModel as keyof typeof RATES] || RATES.sonnet;
+  const handleSaveSettings = async () => {
+    try {
+      await StorageManager.updateSettings(settings);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), COPY_FEEDBACK_DURATION_MS);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    }
+  };
 
-  const statsData = Object.values(rawStats).map(stat => ({
-    date: stat.date,
-    tokens: stat.inputTokens + stat.outputTokens,
-    cost: (stat.inputTokens * rates.input + stat.outputTokens * rates.output) / 1000000
-  }));
+  const calculateTotalCost = () => {
+    let total = 0;
+    Object.values(stats).forEach(stat => {
+      const inputMillions = stat.inputTokens / TOKENS_PER_MILLION;
+      const outputMillions = stat.outputTokens / TOKENS_PER_MILLION;
+      total += (inputMillions * RATES.sonnet.input) + (outputMillions * RATES.sonnet.output);
+    });
+    return total;
+  };
 
-  const handleContinueIn = async (destination: 'chatgpt.com' | 'gemini.google.com' | 'grok.com', url: string) => {
+  const handleContinueIn = async (targetModel: string, url: string) => {
     if (!activeChat) return;
-
-    const pasteText = activeChat.plainText;
-
-    // Save to local storage for the content script to auto-paste
-    await chrome.storage.local.set({
-      pendingPaste: {
-        text: pasteText,
-        destination: destination
-      }
+    
+    // Save the target destination along with the context
+    await chrome.storage.local.set({ 
+      pendingChatContext: { ...activeChat, targetModel } 
     });
 
     // Also copy to clipboard as fallback
     try {
-      await navigator.clipboard.writeText(pasteText);
+      await navigator.clipboard.writeText(activeChat.plainText);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
     }
-
-    // Open target website
-    window.open(url, '_blank');
+    
+    chrome.tabs.create({ url });
   };
 
   const handleCopyContext = async () => {
@@ -117,244 +129,295 @@ const OptionsApp: React.FC = () => {
     URL.revokeObjectURL(link.href);
   };
 
-  const handleSave = async () => {
-    setSaveStatus('saving');
-    await StorageManager.updateSettings(settings);
-    setTimeout(() => setSaveStatus('saved'), 500);
-    setTimeout(() => setSaveStatus('idle'), 2500);
-  };
-
-  const handleClearKey = () => {
-    setSettings({ ...settings, anthropicApiKey: '' });
-  };
-
   return (
-    <div className="w-[500px] min-h-[550px] bg-[#111118] text-gray-200 p-6 font-sans">
-      <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
-        <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
-          <img src="/icon.png" alt="Logo" className="w-5 h-5 opacity-80" onError={(e) => e.currentTarget.style.display='none'} />
+    <div className="w-[400px] h-[600px] bg-[#1a1825] text-gray-200 font-sans flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="p-5 border-b border-white/[0.06] bg-gradient-to-b from-white/[0.02] to-transparent flex justify-between items-start">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20">
+            <img src="/icon128.png" alt="Logo" className="w-6 h-6 opacity-80" onError={(e) => e.currentTarget.style.display='none'} />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-gray-100 tracking-wide">Claude Tracker</h1>
+            <p className="text-xs text-gray-500 font-medium tracking-wide uppercase">Usage & Limits</p>
+          </div>
         </div>
-        <h1 className="text-xl font-bold text-indigo-400 tracking-wide">Claude Tracker</h1>
+        <button 
+          onClick={fetchActiveChat} 
+          className="text-gray-500 hover:text-white p-1.5 rounded-lg hover:bg-white/[0.05] transition-colors" 
+          title="Refresh Context"
+        >
+          <RefreshCw size={16} className={activeChatLoading ? "animate-spin text-orange-400" : ""} />
+        </button>
       </div>
 
-      {/* Continue Chat Section */}
-      {!activeChatLoading && (
-        <div className="bg-[#1e1e2e] p-5 rounded-xl border border-white/5 mb-6 shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-orange-500 to-indigo-500 opacity-60" />
-          
-          <h2 className="text-[10px] font-extrabold uppercase tracking-widest text-orange-400/80 mb-2">
-            Continue This Chat In
-          </h2>
-          
-          {activeChat ? (
-            <div>
-              <div className="flex items-baseline mb-4">
-                <span className="text-sm font-medium text-white italic truncate max-w-[280px]" title={activeChat.title}>
-                  &ldquo;{activeChat.title}&rdquo;
-                </span>
-                <span className="text-xs text-gray-400 ml-2 font-normal">
-                  &bull; {activeChat.turns} {activeChat.turns === 1 ? 'turn' : 'turns'}
-                </span>
-              </div>
-              
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() => handleContinueIn('chatgpt.com', 'https://chatgpt.com')}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
-                >
-                  <ArrowUpRight size={13} />
-                  ChatGPT
-                </button>
-                
-                <button
-                  onClick={() => handleContinueIn('gemini.google.com', 'https://gemini.google.com')}
-                  className="bg-[#2d2d3d] hover:bg-[#3b3b52] text-white border border-white/5 font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow"
-                >
-                  <ArrowUpRight size={13} className="text-indigo-400" />
-                  Gemini
-                </button>
-                
-                <button
-                  onClick={() => handleContinueIn('grok.com', 'https://grok.com')}
-                  className="bg-[#2d2d3d] hover:bg-[#3b3b52] text-white border border-white/5 font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow"
-                >
-                  <ArrowUpRight size={13} className="text-emerald-400" />
-                  Grok
-                </button>
-                
-                <button
-                  onClick={handleCopyContext}
-                  className="bg-[#2d2d3d] hover:bg-[#3b3b52] text-white border border-white/5 p-2 rounded-lg transition-colors cursor-pointer relative"
-                  title="Copy Context"
-                >
-                  {copiedContext ? <ClipboardCheck size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                </button>
-                
-                <button
-                  onClick={handleDownloadMD}
-                  className="bg-[#2d2d3d] hover:bg-[#3b3b52] text-white border border-white/5 p-2 rounded-lg transition-colors cursor-pointer"
-                  title="Download Markdown File"
-                >
-                  <Download size={14} />
-                </button>
-              </div>
-              
-              <p className="text-[10px] text-gray-500 mt-2.5 leading-relaxed">
-                Tally opens the destination tab and drops the conversation in automatically &mdash; pasted inline, or attached as a .md file for very long chats.
-              </p>
-            </div>
-          ) : (
-            <div className="text-gray-400 text-xs py-1.5 text-center leading-relaxed">
-              Open a conversation on <a href="https://claude.ai" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline font-semibold">Claude.ai</a> to continue it in other AI models.
-            </div>
-          )}
-        </div>
-      )}
-      
-      <div className="flex gap-2 mb-6">
-        <button 
+      {/* Tabs */}
+      <div className="flex px-5 pt-4 gap-6 border-b border-white/[0.06]">
+        <button
           onClick={() => setActiveTab('settings')}
-          className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${activeTab === 'settings' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-white/5 hover:bg-white/10'}`}
+          className={`pb-3 text-sm font-semibold tracking-wide transition-colors relative cursor-pointer ${
+            activeTab === 'settings' ? 'text-orange-400' : 'text-gray-500 hover:text-gray-300'
+          }`}
         >
-          <Settings size={16} /> Settings
+          <div className="flex items-center gap-2">
+            <SettingsIcon size={16} />
+            Settings
+          </div>
+          {activeTab === 'settings' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500 rounded-t-full shadow-[0_-2px_8px_rgba(249,115,22,0.5)]" />
+          )}
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('analytics')}
-          className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${activeTab === 'analytics' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-white/5 hover:bg-white/10'}`}
+          className={`pb-3 text-sm font-semibold tracking-wide transition-colors relative cursor-pointer ${
+            activeTab === 'analytics' ? 'text-orange-400' : 'text-gray-500 hover:text-gray-300'
+          }`}
         >
-          <BarChart2 size={16} /> Analytics
+          <div className="flex items-center gap-2">
+            <BarChart2 size={16} />
+            Analytics
+          </div>
+          {activeTab === 'analytics' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500 rounded-t-full shadow-[0_-2px_8px_rgba(249,115,22,0.5)]" />
+          )}
         </button>
       </div>
 
-      {activeTab === 'settings' && (
-        <div className="bg-[#1e1e2e] p-5 rounded-xl shadow-xl border border-white/5 animate-in fade-in slide-in-from-bottom-2">
-          <h2 className="text-lg font-semibold mb-4 text-white">General Settings</h2>
-          
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-400 mb-2">Claude Plan</label>
-            <select 
-              value={settings.claudePlan || 'Free'}
-              onChange={(e) => setSettings({ ...settings, claudePlan: e.target.value as any })}
-              className="w-full bg-[#111118] border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors appearance-none"
-            >
-              <option value="Free">Free Plan (100k Context Est.)</option>
-              <option value="Pro">Pro Plan (200k Context)</option>
-              <option value="Team">Team Plan (200k Context)</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Session Limit (5h)</label>
-              <input 
-                type="number" 
-                value={settings.sessionMessageLimit ?? (settings.claudePlan === 'Pro' ? 45 : settings.claudePlan === 'Team' ? 100 : 8)}
-                onChange={(e) => setSettings({ ...settings, sessionMessageLimit: parseInt(e.target.value) || 0 })}
-                className="w-full bg-[#111118] border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                placeholder={settings.claudePlan === 'Pro' ? '45' : settings.claudePlan === 'Team' ? '100' : '8'}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2">Weekly Limit</label>
-              <input 
-                type="number" 
-                value={settings.weeklyMessageLimit ?? (settings.claudePlan === 'Pro' ? 300 : settings.claudePlan === 'Team' ? 1000 : 50)}
-                onChange={(e) => setSettings({ ...settings, weeklyMessageLimit: parseInt(e.target.value) || 0 })}
-                className="w-full bg-[#111118] border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                placeholder={settings.claudePlan === 'Pro' ? '300' : settings.claudePlan === 'Team' ? '1000' : '50'}
-              />
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-400 mb-2">Anthropic API Key (Optional)</label>
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mb-3 flex gap-3">
-               <AlertTriangle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-               <p className="text-[11px] text-amber-200/70 leading-relaxed">
-                 Providing an API key enables exact token tracking via Anthropic's token counting API. <strong>Security Note:</strong> Stored keys are not encrypted at rest by the browser. We strongly recommend setting a spend cap and using a restricted-scope key in your Anthropic console. Avoid using "Remember API key" on a shared machine.
-               </p>
-            </div>
-            <div className="flex gap-2 mb-3">
-              <input 
-                type="password" 
-                value={settings.anthropicApiKey || ''}
-                onChange={(e) => setSettings({ ...settings, anthropicApiKey: e.target.value })}
-                placeholder="sk-ant-api03-..." 
-                className="w-full bg-[#111118] border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-              {settings.anthropicApiKey && (
-                <button onClick={handleClearKey} className="px-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg transition-colors text-sm font-medium">Clear</button>
-              )}
-            </div>
-            <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={settings.rememberApiKey !== false}
-                onChange={(e) => setSettings({ ...settings, rememberApiKey: e.target.checked })}
-                className="rounded border-gray-700 bg-[#111118] text-indigo-500 focus:ring-indigo-500"
-              />
-              {settings.rememberApiKey !== false ? "Remember API key (Store locally)" : "Ask each session (In-memory only)"}
-            </label>
-          </div>
-
-          <button 
-            onClick={handleSave}
-            disabled={saveStatus === 'saving'}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-70 text-white px-4 py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2"
-          >
-            {saveStatus === 'saved' ? <><CheckCircle2 size={18} /> Saved!</> : 'Save Configuration'}
-          </button>
-        </div>
-      )}
-
-      {activeTab === 'analytics' && (
-        <div className="bg-[#1e1e2e] p-5 rounded-xl shadow-xl border border-white/5 animate-in fade-in slide-in-from-bottom-2">
-          <h2 className="text-lg font-semibold mb-4 text-white">Usage Analytics</h2>
-          
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-[#111118] p-4 rounded-lg border border-white/5 relative overflow-hidden group cursor-help" title="⚠ Estimate excludes: uploaded files, project knowledge, system prompts, and prompt cache. Actual usage may be higher.">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-50 group-hover:opacity-100 transition-opacity" />
-              <div className="text-xs text-gray-500 mb-1">Tokens Tracked</div>
-              <div className="text-2xl font-mono text-indigo-400">
-                {statsData.reduce((acc, curr) => acc + curr.tokens, 0).toLocaleString()}
+      {/* Content Area */}
+      <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
+        
+        {/* Continue Chat Section */}
+        {activeTab === 'settings' && !activeChatLoading && (
+          <div className="bg-white/[0.02] p-5 rounded-xl border border-white/5 mb-6 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-orange-500 to-amber-500 opacity-60" />
+            
+            <h2 className="text-[10px] font-extrabold uppercase tracking-widest text-orange-400/80 mb-3">
+              Continue This Chat In
+            </h2>
+            
+            {activeChat ? (
+              <div>
+                <div className="flex items-baseline mb-4">
+                  <span className="text-sm font-medium text-white italic truncate max-w-[280px]" title={activeChat.title}>
+                    &ldquo;{activeChat.title}&rdquo;
+                  </span>
+                  <span className="text-xs text-gray-400 ml-2 font-normal">
+                    &bull; {activeChat.turns} {activeChat.turns === 1 ? 'turn' : 'turns'}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => handleContinueIn('chatgpt', 'https://chatgpt.com')}
+                    className="bg-[#10a37f] hover:bg-[#10a37f]/80 text-white font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
+                  >
+                    ChatGPT
+                  </button>
+                  
+                  <button
+                    onClick={() => handleContinueIn('gemini', 'https://gemini.google.com')}
+                    className="bg-[#4285f4]/10 hover:bg-[#4285f4]/20 text-[#4285f4] border border-[#4285f4]/20 font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow"
+                  >
+                    Gemini
+                  </button>
+                  
+                  <button
+                    onClick={() => handleContinueIn('grok', 'https://x.com/i/grok')}
+                    className="bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5 font-semibold text-xs py-2 px-3.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow"
+                  >
+                    Grok
+                  </button>
+                  
+                  <button
+                    onClick={handleCopyContext}
+                    className="bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5 p-2 rounded-lg transition-colors cursor-pointer relative"
+                    title="Copy Context (Markdown)"
+                  >
+                    {copiedContext ? <ClipboardCheck size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                  </button>
+                  
+                  <button
+                    onClick={handleDownloadMD}
+                    className="bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5 p-2 rounded-lg transition-colors cursor-pointer"
+                    title="Download Markdown File"
+                  >
+                    <Download size={14} />
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="bg-[#111118] p-4 rounded-lg border border-white/5 relative overflow-hidden group cursor-help" title="⚠ Estimate excludes: uploaded files, project knowledge, system prompts, and prompt cache. Actual usage may be higher.">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-teal-500 opacity-50 group-hover:opacity-100 transition-opacity" />
-              <div className="text-xs text-gray-500 mb-1">Est. Value Used</div>
-              <div className="text-2xl font-mono text-emerald-400">
-                ${statsData.reduce((acc, curr) => acc + curr.cost, 0).toFixed(2)}
-              </div>
-            </div>
-          </div>
-
-          <div className="h-[200px] w-full mt-4 bg-[#111118] rounded-lg border border-white/5 flex items-center justify-center p-2">
-            {statsData.length > 0 ? (
-              <AreaChart width={400} height={180} data={statsData}>
-                <defs>
-                  <linearGradient id="colorTokens" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                <XAxis dataKey="date" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
-                <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${(val/1000).toFixed(0)}k`} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                  itemStyle={{ color: '#818cf8' }}
-                />
-                <Area type="monotone" dataKey="tokens" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#colorTokens)" />
-              </AreaChart>
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 text-sm">
-                <BarChart2 size={32} className="mb-2 opacity-20" />
-                No data recorded yet
+              <div className="text-gray-400 text-xs py-1.5 text-center leading-relaxed">
+                Open a conversation on <a href="https://claude.ai" target="_blank" rel="noreferrer" className="text-orange-400 hover:underline font-semibold">Claude.ai</a> to continue it in other AI models.
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+
+        {activeTab === 'settings' ? (
+          <div className="flex flex-col gap-6">
+            
+            {/* Claude Plan */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                Subscription Plan
+              </h3>
+              <div className="grid grid-cols-3 gap-2">
+                {['Free', 'Pro', 'Team'].map((plan) => (
+                  <button
+                    key={plan}
+                    onClick={() => setSettings({ ...settings, claudePlan: plan as any })}
+                    className={`py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
+                      settings.claudePlan === plan
+                        ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50'
+                        : 'bg-black/20 text-gray-400 border border-white/[0.04] hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    {plan}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Limits */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                Rate Limits (Override Defaults)
+              </h3>
+              <div className="flex gap-4">
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[11px] text-gray-500">Session (5h) Limit</label>
+                  <input
+                    type="number"
+                    value={settings.sessionMessageLimit}
+                    onChange={(e) => setSettings({ ...settings, sessionMessageLimit: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black/20 border border-white/[0.06] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500/50"
+                  />
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-[11px] text-gray-500">Weekly Limit</label>
+                  <input
+                    type="number"
+                    value={settings.weeklyMessageLimit}
+                    onChange={(e) => setSettings({ ...settings, weeklyMessageLimit: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-black/20 border border-white/[0.06] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500/50"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <hr className="border-white/[0.06]" />
+
+            {/* Anthropic API Key */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                <Shield size={14} className="text-orange-400" />
+                Anthropic API Key (Optional)
+              </h3>
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                Provide an API key to enable 100% accurate token counting via the Anthropic API instead of local BPE estimation.
+              </p>
+              
+              <input
+                type="password"
+                placeholder="sk-ant-..."
+                value={settings.anthropicApiKey}
+                onChange={(e) => setSettings({ ...settings, anthropicApiKey: e.target.value })}
+                className="w-full bg-black/20 border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-orange-500/50 transition-colors"
+              />
+              
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={settings.rememberApiKey}
+                  onChange={(e) => setSettings({ ...settings, rememberApiKey: e.target.checked })}
+                  className="rounded border-white/[0.1] bg-black/20 text-orange-500 focus:ring-orange-500/50 focus:ring-offset-0"
+                />
+                <span className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors">
+                  Save key to persistent local storage (uncheck for session-only)
+                </span>
+              </label>
+
+              {!settings.rememberApiKey && settings.anthropicApiKey && (
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 mt-2">
+                  <AlertCircle size={14} className="text-blue-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-blue-300 leading-relaxed">
+                    Key will be stored in memory only and will be wiped when the browser is closed.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Save Button */}
+            <div className="pt-4 pb-8">
+              <button
+                onClick={handleSaveSettings}
+                className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 cursor-pointer"
+              >
+                {isSaved ? <CheckCircle2 size={18} /> : <Save size={18} />}
+                {isSaved ? 'Settings Saved' : 'Save Settings'}
+              </button>
+            </div>
+
+          </div>
+        ) : (
+          <div className="flex flex-col gap-5">
+            {/* Analytics Dashboard */}
+            
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-black/20 border border-white/[0.06] p-4 rounded-xl flex flex-col gap-1">
+                <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Total Days Tracked</span>
+                <span className="text-2xl font-bold text-gray-200">{Object.keys(stats).length}</span>
+              </div>
+              
+              <div className="bg-black/20 border border-white/[0.06] p-4 rounded-xl flex flex-col gap-1">
+                <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Est. Token Cost</span>
+                <span className="text-2xl font-bold text-green-400">${calculateTotalCost().toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="bg-black/20 border border-white/[0.06] rounded-xl overflow-hidden mt-2">
+              <div className="px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">History (Last 7 Days)</h3>
+              </div>
+              <div className="divide-y divide-white/[0.04]">
+                {Object.values(stats)
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .slice(0, 7)
+                  .map((stat, idx) => (
+                    <div key={idx} className="p-4 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-sm font-medium text-gray-300">
+                          {new Date(stat.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
+                        <span className="text-[10px] text-gray-500 font-medium">
+                          {stat.conversationsCount || 1} conversations
+                        </span>
+                      </div>
+                      
+                      <div className="flex gap-4 text-right">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-gray-500 uppercase font-semibold">Input</span>
+                          <span className="text-xs text-orange-400 font-mono">{(stat.inputTokens / 1000).toFixed(1)}k</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-gray-500 uppercase font-semibold">Output</span>
+                          <span className="text-xs text-orange-400 font-mono">{(stat.outputTokens / 1000).toFixed(1)}k</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                
+                {Object.keys(stats).length === 0 && (
+                  <div className="p-8 text-center text-gray-500 text-sm">
+                    No usage data recorded yet.
+                  </div>
+                )}
+              </div>
+            </div>
+            
+          </div>
+        )}
+      </div>
     </div>
   );
 };

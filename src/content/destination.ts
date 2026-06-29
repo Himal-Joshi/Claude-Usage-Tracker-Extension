@@ -1,90 +1,98 @@
-const DESTINATION_DOMAINS = ['chatgpt.com', 'gemini.google.com', 'grok.com'];
+import { isContextValid } from '../utils/chromeHelpers';
+import type { ActiveChatContext } from '../types';
 
-async function handleAutoPaste() {
-  const currentHost = window.location.hostname;
-  
-  // Find matching domain
-  const matchedDomain = DESTINATION_DOMAINS.find(domain => currentHost.includes(domain));
-  if (!matchedDomain) return;
+/** Maximum number of times to poll for the chat input box. */
+const MAX_PASTE_ATTEMPTS = 30;
 
-  try {
-    const data = await chrome.storage.local.get('pendingPaste');
-    if (!data || !data.pendingPaste) return;
+/** Delay between polling attempts (ms). */
+const PASTE_RETRY_INTERVAL_MS = 500;
 
-    const pending = data.pendingPaste as { text: string; destination: string };
-    const { text, destination } = pending;
-    if (destination !== matchedDomain) return;
+/** Target hostname patterns for cross-model transfer. */
+const DESTINATIONS = {
+  chatgpt: 'chatgpt.com',
+  gemini: 'gemini.google.com',
+  grok: 'x.com',
+};
 
-    // We found a pending paste for this site!
-    // Wait for the input element to appear
-    let attempts = 0;
-    const maxAttempts = 30; // 15 seconds
+// ---------------------------------------------------------------------------
+// Main Injector
+// ---------------------------------------------------------------------------
+
+function injectContext() {
+  if (!isContextValid()) return;
+
+  chrome.storage.local.get(['pendingChatContext'], (result) => {
+    if (!result.pendingChatContext) return;
+
+    const context = result.pendingChatContext as ActiveChatContext & { targetModel: string };
+    const { targetModel, markdown, plainText } = context;
+    const currentHost = window.location.hostname;
     
-    const tryPaste = () => {
-      let inputEl: HTMLElement | null = null;
+    let isTarget = false;
+    if (targetModel === 'chatgpt' && currentHost.includes(DESTINATIONS.chatgpt)) isTarget = true;
+    if (targetModel === 'gemini' && currentHost.includes(DESTINATIONS.gemini)) isTarget = true;
+    if (targetModel === 'grok' && currentHost.includes(DESTINATIONS.grok)) isTarget = true;
 
-      if (matchedDomain === 'chatgpt.com') {
-        inputEl = document.querySelector('#prompt-textarea') || document.querySelector('textarea');
-      } else if (matchedDomain === 'gemini.google.com') {
-        inputEl = document.querySelector('div[contenteditable="true"]') || document.querySelector('textarea');
-      } else if (matchedDomain === 'grok.com') {
-        inputEl = document.querySelector('textarea') || document.querySelector('div[contenteditable="true"]');
-      }
+    if (!isTarget) return;
 
-      // General fallback
-      if (!inputEl) {
-        inputEl = document.querySelector('div[contenteditable="true"], textarea, [role="textbox"]') as HTMLElement;
-      }
+    const textToPaste = targetModel === 'grok' ? plainText : markdown;
+    let attempts = 0;
 
-      if (inputEl) {
-        // Clear storage first so we don't paste again on reload
-        chrome.storage.local.remove('pendingPaste');
+    const tryPaste = setInterval(() => {
+      attempts++;
+      
+      const input = document.querySelector(
+        'div[contenteditable="true"], textarea, #prompt-textarea, .ql-editor'
+      ) as HTMLElement;
 
-        // Focus and paste
-        inputEl.focus();
+      if (input) {
+        clearInterval(tryPaste);
 
-        if (inputEl.tagName === 'TEXTAREA' || inputEl.tagName === 'INPUT') {
-          const textEl = inputEl as HTMLTextAreaElement | HTMLInputElement;
-          textEl.value = text;
-          // Trigger events
-          textEl.dispatchEvent(new Event('input', { bubbles: true }));
-          textEl.dispatchEvent(new Event('change', { bubbles: true }));
-        } else if (inputEl.isContentEditable) {
-          // For rich text divs (like Gemini)
-          inputEl.textContent = text;
-          inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-          inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-          
-          // Selection/focus fallback
-          try {
-            const range = document.createRange();
-            const sel = window.getSelection();
-            range.selectNodeContents(inputEl);
-            range.collapse(false);
-            sel?.removeAllRanges();
-            sel?.addRange(range);
-          } catch (e) {
-            console.error('Failed to set cursor position:', e);
-          }
+        if (input.tagName === 'TEXTAREA') {
+          pasteIntoTextInput(input as HTMLTextAreaElement, textToPaste);
+        } else {
+          pasteIntoContentEditable(input, textToPaste);
         }
-        console.log('Successfully pasted chat context automatically.');
-      } else {
-        attempts++;
-        if (attempts < maxAttempts) {
-          setTimeout(tryPaste, 500);
-        }
-      }
-    };
 
-    tryPaste();
-  } catch (err) {
-    console.error('Error in auto paste script:', err);
+        // Clear the pending context so it doesn't paste again on reload
+        chrome.storage.local.remove('pendingChatContext');
+      } else if (attempts >= MAX_PASTE_ATTEMPTS) {
+        clearInterval(tryPaste);
+      }
+    }, PASTE_RETRY_INTERVAL_MS);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DOM Paste Helpers
+// ---------------------------------------------------------------------------
+
+/** Uses execCommand or textContent replacement to insert text into a contenteditable element. */
+function pasteIntoContentEditable(el: HTMLElement, text: string): void {
+  el.focus();
+  const successful = document.execCommand('insertText', false, text);
+  if (!successful) {
+    el.textContent = text;
   }
+  
+  // Dispatch input events to trigger React/framework state updates
+  el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
 }
 
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
-  handleAutoPaste();
-} else {
-  document.addEventListener('DOMContentLoaded', handleAutoPaste);
+/** Inserts text into a standard textarea input. */
+function pasteIntoTextInput(el: HTMLTextAreaElement, text: string): void {
+  el.focus();
+  el.value = text;
+  
+  // Dispatch input events to trigger React/framework state updates
+  el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
 }
-export {};
+
+// Run the injector when the DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', injectContext);
+} else {
+  injectContext();
+}
