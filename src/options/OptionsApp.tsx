@@ -59,8 +59,11 @@ const OptionsApp: React.FC = () => {
   const fetchActiveChat = () => {
     setActiveChatLoading(true);
     fetchActiveChatContext()
-      .then((context) => {
-        if (context) setActiveChat(context);
+      .then(async (context) => {
+        if (context) {
+          setActiveChat(context);
+          await chrome.storage.local.set({ lastActiveChat: context });
+        }
       })
       .finally(() => setActiveChatLoading(false));
   };
@@ -71,6 +74,11 @@ const OptionsApp: React.FC = () => {
         const state = await StorageManager.getState();
         setSettings(state.settings);
         setStats(state.stats);
+
+        const localData = await chrome.storage.local.get('lastActiveChat');
+        if (localData.lastActiveChat) {
+          setActiveChat(localData.lastActiveChat as ActiveChatContext);
+        }
       } catch (err) {
         console.error('Failed to load extension state:', err);
       }
