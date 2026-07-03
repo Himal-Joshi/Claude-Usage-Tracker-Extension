@@ -73,6 +73,7 @@ const ContentApp: React.FC = () => {
         {/* Center: Actions */}
         <div className="flex items-center gap-0.5">
           <button
+            type="button"
             onClick={() => setIsOptimizerOpen(true)}
             className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
             title="Optimize Prompt"
@@ -80,6 +81,7 @@ const ContentApp: React.FC = () => {
             <Sparkles size={12} />
           </button>
           <button
+            type="button"
             onClick={handleExport}
             className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
             title="Export Markdown"
@@ -87,6 +89,7 @@ const ContentApp: React.FC = () => {
             <Download size={12} />
           </button>
           <button
+            type="button"
             onClick={handleOpenSettings}
             className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
             title="Settings"

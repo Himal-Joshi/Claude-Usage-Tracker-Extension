@@ -119,6 +119,7 @@ const PromptOptimizerModal: React.FC<PromptOptimizerModalProps> = ({ onClose }) 
             <h2 className="text-sm font-semibold tracking-wide uppercase text-gray-200">Prompt Optimizer</h2>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
           >
@@ -133,6 +134,7 @@ const PromptOptimizerModal: React.FC<PromptOptimizerModalProps> = ({ onClose }) 
             <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Engine</label>
             <div className="flex bg-black/20 rounded-lg p-1 border border-white/[0.04]">
               <button
+                type="button"
                 onClick={() => setUseApi(false)}
                 className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-md transition-all cursor-pointer ${
                   !useApi ? 'bg-orange-500/20 text-orange-400 shadow-sm' : 'text-gray-400 hover:text-gray-300'
@@ -141,6 +143,7 @@ const PromptOptimizerModal: React.FC<PromptOptimizerModalProps> = ({ onClose }) 
                 Local (Rule-based)
               </button>
               <button
+                type="button"
                 onClick={() => setUseApi(true)}
                 disabled={!hasApiKey}
                 title={!hasApiKey ? 'Requires Anthropic API Key in Settings' : ''}
@@ -167,6 +170,7 @@ const PromptOptimizerModal: React.FC<PromptOptimizerModalProps> = ({ onClose }) 
             <div className="grid grid-cols-2 gap-2">
               {OPTIMIZATION_PROFILES.map((profile) => (
                 <button
+                  type="button"
                   key={profile.id}
                   onClick={() => setSelectedProfile(profile.id)}
                   className={`flex flex-col items-start p-3 rounded-xl border text-left transition-all cursor-pointer ${
@@ -207,6 +211,7 @@ const PromptOptimizerModal: React.FC<PromptOptimizerModalProps> = ({ onClose }) 
 
           {/* Action Button */}
           <button
+            type="button"
             onClick={handleOptimize}
             disabled={isOptimizing || !rawPrompt.trim()}
             className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
@@ -239,12 +244,14 @@ const PromptOptimizerModal: React.FC<PromptOptimizerModalProps> = ({ onClose }) 
               </div>
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={handleCopy}
                   className="flex-1 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
                 >
                   {isCopied ? <CheckCircle2 size={16} className="text-green-400" /> : 'Copy Text'}
                 </button>
                 <button
+                  type="button"
                   onClick={handleReplace}
                   className="flex-1 py-2 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/40 text-orange-400 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
                 >
