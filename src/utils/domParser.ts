@@ -6,6 +6,8 @@
  * solely on DOM nodes.
  */
 
+import { MESSAGE_CONTENT_SELECTORS } from './domConstants';
+
 /** Tags that represent non-content UI elements to be excluded from extraction. */
 const SKIP_TAGS = new Set(['BUTTON', 'STYLE', 'SCRIPT', 'TEXTAREA', 'INPUT', 'SVG', 'NAV', 'HEADER', 'FOOTER']);
 
@@ -40,6 +42,31 @@ export function shouldSkipElement(el: HTMLElement): boolean {
   }
 
   return false;
+}
+
+/** Locates the inner content root within a message turn element. */
+export function findMessageContentRoot(el: HTMLElement): HTMLElement {
+  const content = el.querySelector(MESSAGE_CONTENT_SELECTORS);
+  return (content as HTMLElement) || el;
+}
+
+/**
+ * Extracts markdown and plain text from a message turn, preferring the
+ * inner markdown container and falling back to innerText when needed.
+ */
+export function extractMessageContent(el: HTMLElement): { markdown: string; plainText: string } {
+  const root = findMessageContentRoot(el);
+  let markdown = htmlToMarkdown(root).trim();
+  let plainText = htmlToPlainText(root).trim();
+
+  if (!plainText) {
+    plainText = (root.innerText || root.textContent || '').trim();
+  }
+  if (!markdown) {
+    markdown = plainText;
+  }
+
+  return { markdown, plainText };
 }
 
 /**

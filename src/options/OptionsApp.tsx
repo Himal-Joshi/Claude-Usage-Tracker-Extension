@@ -25,33 +25,44 @@ const OptionsApp: React.FC = () => {
   const [activeChatLoading, setActiveChatLoading] = useState(true);
   const [copiedContext, setCopiedContext] = useState(false);
 
+  const fetchActiveChatContext = (): Promise<ActiveChatContext | null> => {
+    return new Promise((resolve) => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs[0];
+        if (tab && tab.id && tab.url && tab.url.includes('claude.ai/chat/')) {
+          chrome.tabs.sendMessage(tab.id, { action: 'get_chat_context' }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.log('No response from content script:', chrome.runtime.lastError);
+              resolve(null);
+              return;
+            }
+            if (response && response.success) {
+              resolve({
+                title: response.title,
+                turns: response.turns,
+                url: tab.url || '',
+                markdown: response.markdown,
+                plainText: response.plainText,
+                model: response.model,
+              });
+              return;
+            }
+            resolve(null);
+          });
+        } else {
+          resolve(null);
+        }
+      });
+    });
+  };
+
   const fetchActiveChat = () => {
     setActiveChatLoading(true);
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs[0];
-      if (tab && tab.id && tab.url && tab.url.includes('claude.ai/chat/')) {
-        chrome.tabs.sendMessage(tab.id, { action: 'get_chat_context' }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.log("No response from content script:", chrome.runtime.lastError);
-            setActiveChatLoading(false);
-            return;
-          }
-          if (response && response.success) {
-            setActiveChat({
-              title: response.title,
-              turns: response.turns,
-              url: tab.url || '',
-              markdown: response.markdown,
-              plainText: response.plainText,
-              model: response.model
-            });
-          }
-          setActiveChatLoading(false);
-        });
-      } else {
-        setActiveChatLoading(false);
-      }
-    });
+    fetchActiveChatContext()
+      .then((context) => {
+        if (context) setActiveChat(context);
+      })
+      .finally(() => setActiveChatLoading(false));
   };
 
   useEffect(() => {
@@ -90,40 +101,49 @@ const OptionsApp: React.FC = () => {
   };
 
   const handleContinueIn = async (targetModel: string, url: string) => {
-    if (!activeChat) return;
-    
+    const context = (await fetchActiveChatContext()) ?? activeChat;
+    if (!context) return;
+
+    setActiveChat(context);
+
     // Save the target destination along with the context
-    await chrome.storage.local.set({ 
-      pendingChatContext: { ...activeChat, targetModel } 
+    await chrome.storage.local.set({
+      pendingChatContext: { ...context, targetModel },
     });
 
     // Also copy to clipboard as fallback
     try {
-      await navigator.clipboard.writeText(activeChat.plainText);
+      await navigator.clipboard.writeText(context.plainText);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
     }
-    
+
     chrome.tabs.create({ url });
   };
 
   const handleCopyContext = async () => {
-    if (!activeChat) return;
     try {
-      await navigator.clipboard.writeText(activeChat.markdown);
+      const context = (await fetchActiveChatContext()) ?? activeChat;
+      if (!context) return;
+
+      setActiveChat(context);
+      await navigator.clipboard.writeText(context.markdown);
       setCopiedContext(true);
-      setTimeout(() => setCopiedContext(false), 2000);
+      setTimeout(() => setCopiedContext(false), COPY_FEEDBACK_DURATION_MS);
     } catch (err) {
       console.error('Failed to copy context:', err);
     }
   };
 
-  const handleDownloadMD = () => {
-    if (!activeChat) return;
-    const blob = new Blob([activeChat.markdown], { type: 'text/markdown;charset=utf-8' });
+  const handleDownloadMD = async () => {
+    const context = (await fetchActiveChatContext()) ?? activeChat;
+    if (!context) return;
+
+    setActiveChat(context);
+    const blob = new Blob([context.markdown], { type: 'text/markdown;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    const cleanTitle = activeChat.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'claude-chat';
+    const cleanTitle = context.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'claude-chat';
     link.download = `${cleanTitle}-${Date.now()}.md`;
     link.click();
     URL.revokeObjectURL(link.href);

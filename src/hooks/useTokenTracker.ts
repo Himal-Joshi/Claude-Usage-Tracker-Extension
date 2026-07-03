@@ -11,14 +11,11 @@ import {
   FREE_CONTEXT_LIMIT,
 } from '../utils/constants';
 import { isContextValid, dedupeByAncestor } from '../utils/chromeHelpers';
-import { USER_MESSAGE_SELECTOR_STRING } from '../utils/domConstants';
+import { ALL_MESSAGE_SELECTORS, USER_MESSAGE_SELECTOR_STRING } from '../utils/domConstants';
 import type { DailyStats } from '../types';
 
 /** Minimum throttle interval between token recalculations (ms). */
 const THROTTLE_INTERVAL_MS = 1000;
-
-/** CSS selectors for gathering all message content from the DOM. */
-const ALL_MESSAGE_SELECTORS = '.font-user-message, .font-claude-message, .prose, [data-is-user], [data-message-author], [data-testid*="message"], .ReactMarkdown';
 
 /**
  * Tracks estimated token usage for the current chat session.
@@ -119,7 +116,8 @@ export function useTokenTracker() {
       }
 
       if (turnsCount > lastTurnsCountRef.current) {
-        StorageManager.updateDailyStats(today, window.location.pathname, tokenCount, 0).catch(() => {});
+        const inputDelta = Math.max(0, tokenCount - lastTotalTokensRef.current);
+        StorageManager.updateDailyStats(today, window.location.pathname, inputDelta, 0).catch(() => {});
         lastTurnsCountRef.current = turnsCount;
         lastInputTokensRef.current = tokenCount;
         lastOutputTokensRef.current = 0;
