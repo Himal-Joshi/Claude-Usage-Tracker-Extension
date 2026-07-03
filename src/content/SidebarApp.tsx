@@ -45,7 +45,7 @@ const SidebarApp: React.FC = () => {
             <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shadow-[0_0_6px_rgba(251,146,60,0.6)] animate-pulse"></span>
             <button
               type="button"
-              onClick={handleOpenSettings}
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleOpenSettings(); }}
               className="text-gray-500 hover:text-orange-400 transition-colors cursor-pointer"
               title="Open Settings"
             >
@@ -87,7 +87,7 @@ const SidebarApp: React.FC = () => {
             </span>
             <button
               type="button"
-              onClick={handleOpenSettings}
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleOpenSettings(); }}
               className="text-gray-500 hover:text-orange-400 transition-colors cursor-pointer"
               title="Open Settings"
             >

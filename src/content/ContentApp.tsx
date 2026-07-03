@@ -74,7 +74,7 @@ const ContentApp: React.FC = () => {
         <div className="flex items-center gap-0.5">
           <button
             type="button"
-            onClick={() => setIsOptimizerOpen(true)}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setIsOptimizerOpen(true); }}
             className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
             title="Optimize Prompt"
           >
@@ -82,7 +82,7 @@ const ContentApp: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={handleExport}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleExport(); }}
             className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
             title="Export Markdown"
           >
@@ -90,7 +90,7 @@ const ContentApp: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={handleOpenSettings}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleOpenSettings(); }}
             className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
             title="Settings"
           >
