@@ -5,16 +5,18 @@ import SidebarApp from './SidebarApp';
 import HeaderStatsApp from './HeaderStatsApp';
 import { isContextValid, dedupeByAncestor } from '../utils/chromeHelpers';
 import {
-  USER_MESSAGE_SELECTORS,
   USER_MESSAGE_SELECTOR_STRING,
-  ASSISTANT_MESSAGE_SELECTORS,
+  ASSISTANT_MESSAGE_SELECTOR_STRING,
+  ALL_MESSAGE_SELECTORS,
+  CONVERSATION_TURN_SELECTORS,
+  classifyMessageRole,
 } from '../utils/domConstants';
 import {
   RECORD_DEBOUNCE_MS,
   RECENT_INPUT_THRESHOLD_MS,
   detectModel,
 } from '../utils/constants';
-import { htmlToMarkdown, htmlToPlainText } from '../utils/domParser';
+import { extractMessageContent } from '../utils/domParser';
 import {
   findSidebar,
   findRecentsHeader,
@@ -22,6 +24,8 @@ import {
   findChatTitleElement,
   findChatBoxContainer,
   findToolbarElement,
+  findChatScrollContainer,
+  isOutsideConversation,
 } from '../utils/domFinders';
 import './index.css';
 
@@ -161,45 +165,82 @@ function injectHeaderStats() {
 }
 
 // ---------------------------------------------------------------------------
-// Message Context Extraction (Fix: Parse entire container, rely on domParser for skipping chrome)
+// Message Context Extraction (combined selectors + virtual-scroll expansion)
 // ---------------------------------------------------------------------------
 
-function buildChatContext() {
-  const title = getCleanChatTitle() || 'Claude Chat';
+const SCROLL_EXPAND_STEP_PX = 400;
+const SCROLL_EXPAND_DELAY_MS = 60;
+const SCROLL_EXPAND_MAX_PASSES = 50;
+
+/** Scroll through the chat container so virtualized/off-screen messages render in the DOM. */
+async function expandVirtualizedMessages(): Promise<void> {
+  const container = findChatScrollContainer();
+  if (!container) return;
+
+  const savedScrollTop = container.scrollTop;
+  const countMessages = () =>
+    dedupeByAncestor(
+      Array.from(document.querySelectorAll(ALL_MESSAGE_SELECTORS)).filter(
+        (el) => !isOutsideConversation(el),
+      ),
+    ).length;
+
+  let lastCount = -1;
+  for (let pass = 0; pass < SCROLL_EXPAND_MAX_PASSES; pass++) {
+    container.scrollTop = container.scrollHeight;
+    await new Promise((resolve) => setTimeout(resolve, SCROLL_EXPAND_DELAY_MS));
+
+    const count = countMessages();
+    if (count === lastCount && pass > 2) break;
+    lastCount = count;
+  }
+
+  const step = Math.max(container.clientHeight * 0.8, SCROLL_EXPAND_STEP_PX);
+  for (let pos = 0; pos <= container.scrollHeight; pos += step) {
+    container.scrollTop = pos;
+    await new Promise((resolve) => setTimeout(resolve, SCROLL_EXPAND_DELAY_MS));
+  }
+
+  container.scrollTop = savedScrollTop;
+}
+
+function collectChatMessages(): {
+  role: 'user' | 'claude';
+  markdown: string;
+  plainText: string;
+  el: Element;
+}[] {
+  const rawUserEls = dedupeByAncestor(
+    Array.from(document.querySelectorAll(USER_MESSAGE_SELECTOR_STRING)).filter(
+      (el) => !isOutsideConversation(el),
+    )
+  );
+
+  const rawAssistantEls = dedupeByAncestor(
+    Array.from(document.querySelectorAll(ASSISTANT_MESSAGE_SELECTOR_STRING)).filter(
+      (el) => !isOutsideConversation(el),
+    )
+  );
+
+  // drop anything that's nested inside an element of the opposite role
+  const userEls = rawUserEls.filter(el => !rawAssistantEls.some(a => a.contains(el)));
+  const assistantEls = rawAssistantEls.filter(el => !rawUserEls.some(u => u.contains(el)));
   
-  // 1. Gather all message elements by role
-  const rawUserEls = Array.from(document.querySelectorAll(USER_MESSAGE_SELECTOR_STRING));
-  const rawAssistantEls = Array.from(document.querySelectorAll(ASSISTANT_MESSAGE_SELECTORS.join(', ')));
+  const turnEls = [...userEls, ...assistantEls];
 
-  // 2. Deduplicate nodes to get the outermost wrappers
-  let userEls = dedupeByAncestor(rawUserEls);
-  let assistantEls = dedupeByAncestor(rawAssistantEls);
+  const allMessages: { role: 'user' | 'claude'; markdown: string; plainText: string; el: Element }[] =
+    [];
 
-  // 3. Cross-role contamination filter
-  // Remove user elements that contain or are contained by assistant elements (and vice versa)
-  userEls = userEls.filter(uEl => !assistantEls.some(aEl => aEl.contains(uEl) || uEl.contains(aEl)));
-  assistantEls = assistantEls.filter(aEl => !userEls.some(uEl => uEl.contains(aEl) || aEl.contains(uEl)));
+  for (const el of turnEls) {
+    const role = classifyMessageRole(el);
+    if (!role) continue;
 
-  // 4. Parse content
-  const allMessages: { role: 'user' | 'claude'; markdown: string; plainText: string; el: Element }[] = [];
+    const { markdown, plainText } = extractMessageContent(el as HTMLElement);
+    if (!plainText) continue;
 
-  userEls.forEach((el) => {
-    const markdown = htmlToMarkdown(el as HTMLElement).trim();
-    const plainText = htmlToPlainText(el as HTMLElement).trim();
-    if (markdown || plainText) {
-      allMessages.push({ role: 'user', markdown, plainText, el });
-    }
-  });
+    allMessages.push({ role, markdown, plainText, el });
+  }
 
-  assistantEls.forEach((el) => {
-    const markdown = htmlToMarkdown(el as HTMLElement).trim();
-    const plainText = htmlToPlainText(el as HTMLElement).trim();
-    if (markdown || plainText) {
-      allMessages.push({ role: 'claude', markdown, plainText, el });
-    }
-  });
-
-  // 5. Sort chronologically by DOM position
   allMessages.sort((a, b) => {
     const position = a.el.compareDocumentPosition(b.el);
     if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
@@ -207,6 +248,14 @@ function buildChatContext() {
     return 0;
   });
 
+  return allMessages;
+}
+
+async function buildChatContext() {
+  await expandVirtualizedMessages();
+
+  const title = getCleanChatTitle() || 'Claude Chat';
+  const allMessages = collectChatMessages();
   const turns = allMessages.filter((msg) => msg.role === 'user').length;
   
   // 6. Build the formatted Markdown
@@ -262,12 +311,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!isContextValid()) return false;
   
   if (message.action === 'get_chat_context') {
-    try {
-      const data = buildChatContext();
-      sendResponse({ success: true, ...data });
-    } catch (e: unknown) {
-      sendResponse({ success: false, error: (e as Error).message });
-    }
+    buildChatContext()
+      .then((data) => {
+        sendResponse({ success: true, ...data });
+      })
+      .catch((e: unknown) => {
+        sendResponse({ success: false, error: (e as Error).message });
+      });
     return true; // keep channel open for async response
   }
   

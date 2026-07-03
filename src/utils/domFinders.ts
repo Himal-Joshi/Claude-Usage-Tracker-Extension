@@ -90,6 +90,34 @@ export function findChatTitleElement(): HTMLElement | null {
  * Locates the chat input container by walking up from the contenteditable
  * element until a form/fieldset boundary or a container with action buttons.
  */
+/** Returns true when an element lives in sidebar/nav chrome, not the chat transcript. */
+export function isOutsideConversation(el: Element): boolean {
+  return !!(el.closest('nav') || el.closest('[class*="sidebar" i]'));
+}
+
+/**
+ * Finds the scrollable container that holds the chat transcript.
+ * Walks up from the input field looking for overflow scroll, with a fallback selector.
+ */
+export function findChatScrollContainer(): HTMLElement | null {
+  const input = document.querySelector('div[contenteditable="true"], textarea');
+  if (input) {
+    let el = input.parentElement;
+    while (el && el !== document.body) {
+      const style = window.getComputedStyle(el);
+      if (
+        (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+        el.scrollHeight > el.clientHeight
+      ) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+  }
+
+  return document.querySelector('[class*="overflow-y-auto"]') as HTMLElement | null;
+}
+
 export function findChatBoxContainer(): HTMLElement | null {
   const input = document.querySelector('div[contenteditable="true"], textarea');
   if (!input) return null;
