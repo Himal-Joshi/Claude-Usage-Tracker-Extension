@@ -22,7 +22,7 @@ const OptionsApp: React.FC = () => {
   const [stats, setStats] = useState<Record<string, DailyStats>>({});
   const [isSaved, setIsSaved] = useState(false);
   const [activeChat, setActiveChat] = useState<ActiveChatContext | null>(null);
-  const [activeChatLoading, setActiveChatLoading] = useState(true);
+  const [activeChatLoading, setActiveChatLoading] = useState(false);
   const [copiedContext, setCopiedContext] = useState(false);
 
   const fetchActiveChatContext = (): Promise<ActiveChatContext | null> => {
@@ -71,8 +71,6 @@ const OptionsApp: React.FC = () => {
         const state = await StorageManager.getState();
         setSettings(state.settings);
         setStats(state.stats);
-        
-        fetchActiveChat();
       } catch (err) {
         console.error('Failed to load extension state:', err);
       }
