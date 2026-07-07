@@ -41,7 +41,8 @@ const ContentApp: React.FC = () => {
   const remainingTokens = Math.max(0, contextLimit - tokens.total);
   const chatMessagesLeft = Math.floor(remainingTokens / Math.max(1, avgTurnTokens));
 
-  const barColor = getUsageBarColor(stats.sessionPercentage);
+  const contextPercentage = Math.round((tokens.total / contextLimit) * 100);
+  const barColor = getUsageBarColor(contextPercentage);
 
   return (
     <>
@@ -49,14 +50,14 @@ const ContentApp: React.FC = () => {
         {/* Left Side: Session & Today */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 cursor-help" title={DISCLAIMER_TEXT}>
-            <span className="font-semibold text-[9px] uppercase tracking-wider text-orange-300/70">Session</span>
-            <span className="font-mono text-[11px] text-orange-200 font-semibold whitespace-nowrap">{stats.sessionPercentage}%</span>
+            <span className="font-semibold text-[9px] uppercase tracking-wider text-orange-300/70">Context</span>
+            <span className="font-mono text-[11px] text-orange-200 font-semibold whitespace-nowrap">{contextPercentage}%</span>
             <div className="w-48 h-1 bg-white/[0.04] rounded-full overflow-hidden border border-white/[0.04]">
               <div
                 className={`h-full rounded-full transition-all duration-700 ease-out ${barColor}`}
                 style={{
-                  width: `${Math.max(Math.min(stats.sessionPercentage, 100), MIN_PROGRESS_BAR_PERCENT)}%`,
-                  boxShadow: stats.sessionPercentage > 0 ? '0 0 6px rgba(251,146,60,0.35)' : 'none',
+                  width: `${Math.max(Math.min(contextPercentage, 100), MIN_PROGRESS_BAR_PERCENT)}%`,
+                  boxShadow: contextPercentage > 0 ? '0 0 6px rgba(251,146,60,0.35)' : 'none',
                 }}
               />
             </div>
