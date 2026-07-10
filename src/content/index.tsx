@@ -26,6 +26,7 @@ import {
   findToolbarElement,
   findChatScrollContainer,
   isOutsideConversation,
+  collectChatMessages,
 } from '../utils/domFinders';
 import './index.css';
 
@@ -204,52 +205,7 @@ async function expandVirtualizedMessages(): Promise<void> {
   container.scrollTop = savedScrollTop;
 }
 
-function collectChatMessages(): {
-  role: 'user' | 'claude';
-  markdown: string;
-  plainText: string;
-  el: Element;
-}[] {
-  const rawUserEls = dedupeByAncestor(
-    Array.from(document.querySelectorAll(USER_MESSAGE_SELECTOR_STRING)).filter(
-      (el) => !isOutsideConversation(el),
-    )
-  );
 
-  const rawAssistantEls = dedupeByAncestor(
-    Array.from(document.querySelectorAll(ASSISTANT_MESSAGE_SELECTOR_STRING)).filter(
-      (el) => !isOutsideConversation(el),
-    )
-  );
-
-  // drop anything that's nested inside an element of the opposite role
-  const userEls = rawUserEls.filter(el => !rawAssistantEls.some(a => a.contains(el)));
-  const assistantEls = rawAssistantEls.filter(el => !rawUserEls.some(u => u.contains(el)));
-  
-  const turnEls = [...userEls, ...assistantEls];
-
-  const allMessages: { role: 'user' | 'claude'; markdown: string; plainText: string; el: Element }[] =
-    [];
-
-  for (const el of turnEls) {
-    const role = classifyMessageRole(el);
-    if (!role) continue;
-
-    const { markdown, plainText } = extractMessageContent(el as HTMLElement);
-    if (!plainText) continue;
-
-    allMessages.push({ role, markdown, plainText, el });
-  }
-
-  allMessages.sort((a, b) => {
-    const position = a.el.compareDocumentPosition(b.el);
-    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-    if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-    return 0;
-  });
-
-  return allMessages;
-}
 
 async function buildChatContext() {
   await expandVirtualizedMessages();
