@@ -42,22 +42,22 @@ const ContentApp: React.FC = () => {
   const chatMessagesLeft = Math.floor(remainingTokens / Math.max(1, avgTurnTokens));
 
   const contextPercentage = Math.round((tokens.total / contextLimit) * 100);
-  const barColor = getUsageBarColor(contextPercentage);
+  const sessionBarColor = getUsageBarColor(stats.sessionPercentage);
 
   return (
     <>
       <div className="flex items-center justify-between w-full border-t border-white/[0.06] pt-2 pb-1.5 px-4 text-gray-400 text-[11px] font-sans transition-all select-none">
         {/* Left Side: Session & Today */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 cursor-help" title={DISCLAIMER_TEXT}>
-            <span className="font-semibold text-[9px] uppercase tracking-wider text-orange-300/70">Context</span>
-            <span className="font-mono text-[11px] text-orange-200 font-semibold whitespace-nowrap">{contextPercentage}%</span>
+          <div className="flex items-center gap-2 cursor-help" title={`Current chat context window: ${contextPercentage}%\n\n${DISCLAIMER_TEXT}`}>
+            <span className="font-semibold text-[9px] uppercase tracking-wider text-orange-300/70">Session</span>
+            <span className="font-mono text-[11px] text-orange-200 font-semibold whitespace-nowrap">{stats.sessionPercentage}%</span>
             <div className="w-48 h-1 bg-white/[0.04] rounded-full overflow-hidden border border-white/[0.04]">
               <div
-                className={`h-full rounded-full transition-all duration-700 ease-out ${barColor}`}
+                className={`h-full rounded-full transition-all duration-700 ease-out ${sessionBarColor}`}
                 style={{
-                  width: `${Math.max(Math.min(contextPercentage, 100), MIN_PROGRESS_BAR_PERCENT)}%`,
-                  boxShadow: contextPercentage > 0 ? '0 0 6px rgba(251,146,60,0.35)' : 'none',
+                  width: `${Math.max(Math.min(stats.sessionPercentage, 100), MIN_PROGRESS_BAR_PERCENT)}%`,
+                  boxShadow: stats.sessionPercentage > 0 ? '0 0 6px rgba(251,146,60,0.35)' : 'none',
                 }}
               />
             </div>
