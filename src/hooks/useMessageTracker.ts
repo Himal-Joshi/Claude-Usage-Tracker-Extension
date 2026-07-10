@@ -28,17 +28,56 @@ export function useMessageTracker() {
 
   const updateStats = async () => {
     if (!isContextValid()) return;
-    try {
-      const state = await StorageManager.getState();
-      const messageTimes = await StorageManager.getMessageTimes();
-      const currentStats = calculateUsageStats(messageTimes, state.settings);
-      setStats(currentStats);
-    } catch (e: unknown) {
-      const message = (e as Error).message || '';
-      if (message.includes('context invalidated') || message.includes('Extension context invalidated')) {
-        return;
+
+    chrome.runtime.sendMessage({ action: 'fetch_usage' }, async (response) => {
+      if (response && response.success && response.usage) {
+        const usage = response.usage;
+        let sessionPercentage = 0;
+        let resetTime = 'Not set';
+        let weeklyPercentage = 0;
+
+        if (usage.five_hour) {
+          const rawUtil = usage.five_hour.utilization || 0;
+          sessionPercentage = rawUtil <= 1 ? Math.round(rawUtil * 100) : Math.round(rawUtil);
+
+          if (usage.five_hour.resets_at) {
+            const resetMs = new Date(usage.five_hour.resets_at).getTime();
+            const remaining = resetMs - Date.now();
+            if (remaining > 0) {
+              const hours = Math.floor(remaining / (60 * 60 * 1000));
+              const mins = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+              resetTime = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+            }
+          }
+        }
+
+        if (usage.seven_day) {
+          const rawWk = usage.seven_day.utilization || 0;
+          weeklyPercentage = rawWk <= 1 ? Math.round(rawWk * 100) : Math.round(rawWk);
+        }
+
+        setStats((prev) => ({
+          ...prev,
+          sessionPercentage,
+          resetTime,
+          weeklyPercentage,
+          messagesLeft: Math.max(0, Math.round(45 * (1 - sessionPercentage / 100))),
+        }));
+      } else {
+        // Fallback to local calculation
+        try {
+          const state = await StorageManager.getState();
+          const messageTimes = await StorageManager.getMessageTimes();
+          const currentStats = calculateUsageStats(messageTimes, state.settings);
+          setStats(currentStats);
+        } catch (e: unknown) {
+          const message = (e as Error).message || '';
+          if (message.includes('context invalidated') || message.includes('Extension context invalidated')) {
+            return;
+          }
+        }
       }
-    }
+    });
   };
 
   useEffect(() => {

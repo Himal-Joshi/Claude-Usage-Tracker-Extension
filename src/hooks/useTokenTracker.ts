@@ -11,11 +11,17 @@ import {
   FREE_CONTEXT_LIMIT,
 } from '../utils/constants';
 import { isContextValid, dedupeByAncestor } from '../utils/chromeHelpers';
+import { collectChatMessages } from '../utils/domFinders';
 import { ALL_MESSAGE_SELECTORS, USER_MESSAGE_SELECTOR_STRING } from '../utils/domConstants';
 import type { DailyStats } from '../types';
 
 /** Minimum throttle interval between token recalculations (ms). */
 const THROTTLE_INTERVAL_MS = 1000;
+
+const getConversationId = (): string | null => {
+  const match = window.location.pathname.match(/\/chat\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+  return match ? match[1] : null;
+};
 
 /**
  * Tracks estimated token usage for the current chat session.
@@ -136,8 +142,62 @@ export function useTokenTracker() {
     const calculateTokens = async () => {
       if (!isContextValid()) return;
 
-      const text = gatherConversationText();
-      const turnsCount = countDedupedUserMessages();
+      const conversationId = getConversationId();
+      let text = '';
+      let turnsCount = 0;
+      let usedApi = false;
+
+      if (conversationId) {
+        try {
+          const apiResult = await new Promise<{ text: string, turnsCount: number }>((resolve, reject) => {
+            chrome.runtime.sendMessage({ action: 'fetch_conversation', conversationId }, (response) => {
+              if (response && response.success && response.conversation) {
+                const chatMessages = response.conversation.chat_messages || [];
+                chatMessages.sort((a: any, b: any) => {
+                  const t1 = a.created_at ? new Date(a.created_at).getTime() : 0;
+                  const t2 = b.created_at ? new Date(b.created_at).getTime() : 0;
+                  return t1 - t2;
+                });
+
+                let apiText = chatMessages.map((msg: any) => msg.text || '').join('\n');
+                const apiUserMessagesCount = chatMessages.filter((msg: any) => msg.sender === 'human').length;
+
+                const domMessages = collectChatMessages();
+                let supplementedText = apiText;
+                let supplementedTurnsCount = apiUserMessagesCount;
+
+                if (domMessages.length > chatMessages.length) {
+                  const unsavedDomMessages = domMessages.slice(chatMessages.length);
+                  const unsavedText = unsavedDomMessages.map(msg => msg.plainText).join('\n');
+                  supplementedText += '\n' + unsavedText;
+                  supplementedTurnsCount += unsavedDomMessages.filter(msg => msg.role === 'user').length;
+                }
+
+                const inputElement = document.querySelector('div[contenteditable="true"]');
+                const inputText = inputElement?.textContent || '';
+                if (inputText.trim().length > 0) {
+                  supplementedText += '\n' + inputText;
+                }
+
+                resolve({ text: supplementedText, turnsCount: supplementedTurnsCount });
+              } else {
+                reject(new Error(response?.error || 'Failed to fetch conversation from API'));
+              }
+            });
+          });
+
+          text = apiResult.text;
+          turnsCount = apiResult.turnsCount;
+          usedApi = true;
+        } catch (err) {
+          // Fallback to DOM parsing on error
+        }
+      }
+
+      if (!usedApi) {
+        text = gatherConversationText();
+        turnsCount = countDedupedUserMessages();
+      }
 
       chrome.runtime.sendMessage({ action: 'get_public_settings' }, (response) => {
         if (!response || !response.success) return;
