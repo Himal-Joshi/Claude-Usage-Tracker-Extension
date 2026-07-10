@@ -182,6 +182,105 @@ function handleEstimateTokens(
   }
 }
 
+let cachedOrgId: string | null = null;
+
+async function getOrgId(): Promise<string> {
+  if (cachedOrgId) return cachedOrgId;
+  const response = await fetch('https://claude.ai/api/organizations', { credentials: 'include' });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch organizations: ${response.status}`);
+  }
+  const orgs = await response.json();
+  if (!Array.isArray(orgs) || orgs.length === 0) {
+    throw new Error('No organizations found');
+  }
+  cachedOrgId = orgs[0].uuid;
+  return cachedOrgId!;
+}
+
+async function handleFetchConversation(
+  message: { conversationId: string },
+  sendResponse: (response: unknown) => void,
+): Promise<void> {
+  try {
+    let orgId = await getOrgId();
+    let response = await fetch(
+      `https://claude.ai/api/organizations/${orgId}/chat_conversations/${message.conversationId}`,
+      { credentials: 'include' }
+    );
+    
+    if (!response.ok && (response.status === 404 || response.status === 403)) {
+      cachedOrgId = null;
+      orgId = await getOrgId();
+      response = await fetch(
+        `https://claude.ai/api/organizations/${orgId}/chat_conversations/${message.conversationId}`,
+        { credentials: 'include' }
+      );
+    }
+
+    if (!response.ok) {
+      sendResponse({ success: false, error: `Failed to fetch conversation: ${response.status}` });
+      return;
+    }
+    const data = await response.json();
+    
+    // SYNC MESSAGE TIMES FROM API
+    try {
+      const chatMessages = data.chat_messages || [];
+      const humanMessageTimes = chatMessages
+        .filter((msg: any) => msg.sender === 'human')
+        .map((msg: any) => new Date(msg.created_at).getTime())
+        .filter((t: number) => !isNaN(t) && t > Date.now() - 7 * 24 * 60 * 60 * 1000);
+      
+      const storageResult = await chrome.storage.local.get('messageTimes');
+      const existingTimes = (storageResult.messageTimes as number[]) || [];
+      
+      // Deduplicate with 2-second tolerance to avoid doubling up manual entries
+      const merged = [...existingTimes];
+      for (const t of humanMessageTimes) {
+        if (!merged.some(ex => Math.abs(ex - t) < 2000)) {
+          merged.push(t);
+        }
+      }
+      merged.sort((a, b) => a - b);
+      
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const filtered = merged.filter(t => t > cutoff);
+      await chrome.storage.local.set({ messageTimes: filtered });
+    } catch (err) {
+      console.error('Failed to sync message times:', err);
+    }
+
+    sendResponse({ success: true, conversation: data });
+  } catch (e: unknown) {
+    sendResponse({ success: false, error: (e as Error).message });
+  }
+}
+
+async function handleFetchUsage(
+  sendResponse: (response: unknown) => void,
+): Promise<void> {
+  try {
+    let orgId = await getOrgId();
+    let response = await fetch(`https://claude.ai/api/organizations/${orgId}/usage`, { credentials: 'include' });
+    
+    if (!response.ok && (response.status === 404 || response.status === 403)) {
+      cachedOrgId = null;
+      orgId = await getOrgId();
+      response = await fetch(`https://claude.ai/api/organizations/${orgId}/usage`, { credentials: 'include' });
+    }
+
+    if (!response.ok) {
+      sendResponse({ success: false, error: `Failed to fetch usage: ${response.status}` });
+      return;
+    }
+    const data = await response.json();
+    sendResponse({ success: true, usage: data });
+  } catch (e: unknown) {
+    sendResponse({ success: false, error: (e as Error).message });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Message router
 // ---------------------------------------------------------------------------
@@ -215,6 +314,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case 'estimate_tokens':
       handleEstimateTokens(message, sendResponse);
       return false;
+
+    case 'fetch_conversation':
+      handleFetchConversation(message, sendResponse);
+      return true;
+
+    case 'fetch_usage':
+      handleFetchUsage(sendResponse);
+      return true;
 
     default:
       return false;
