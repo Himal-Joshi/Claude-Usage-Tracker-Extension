@@ -120,19 +120,42 @@ export function findChatScrollContainer(): HTMLElement | null {
   return document.querySelector('[class*="overflow-y-auto"]') as HTMLElement | null;
 }
 
+/**
+ * Locates the outermost container of Claude's chat input box (the prompt card/form/fieldset)
+ * so that widgets can be cleanly anchored above or relative to it.
+ */
 export function findChatBoxContainer(): HTMLElement | null {
   const input = document.querySelector('div[contenteditable="true"], textarea');
   if (!input) return null;
 
-  let el = input.parentElement;
-  while (el && el.tagName !== 'FIELDSET' && el.tagName !== 'FORM') {
-    if (el.querySelector('button, [role="button"]')) {
-      return el;
+  // 1. Direct form or fieldset check (standard Claude input wrapper)
+  const formOrFieldset = input.closest('form, fieldset');
+  if (formOrFieldset) {
+    return formOrFieldset as HTMLElement;
+  }
+
+  // 2. Ascend to find the prompt card container that encloses both input and action buttons
+  let el: HTMLElement | null = input.parentElement;
+  let promptCardCandidate: HTMLElement | null = null;
+
+  while (el && el !== document.body) {
+    // Stop if we ascend into chat transcript, navigation, or header
+    if (el.querySelector('[data-testid="user-message"], [class*="font-claude-response"], nav, header')) {
+      break;
+    }
+
+    const hasButtons = !!el.querySelector('button, [role="button"]');
+    if (hasButtons) {
+      promptCardCandidate = el;
+      const cls = typeof el.className === 'string' ? el.className : '';
+      if (cls.includes('rounded') || cls.includes('border')) {
+        return el;
+      }
     }
     el = el.parentElement;
   }
 
-  return input.parentElement;
+  return promptCardCandidate || (input.parentElement as HTMLElement);
 }
 
 /**
