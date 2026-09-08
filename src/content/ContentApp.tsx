@@ -11,7 +11,7 @@ import { MIN_TOKENS_PER_TURN, MIN_PROGRESS_BAR_PERCENT } from '../utils/constant
 
 const DISCLAIMER_TEXT = '⚠ Estimate excludes: uploaded files, project knowledge, system prompts, and prompt cache. Actual usage may be higher.';
 
-/** Main content widget injected below the Claude chat input box. */
+/** Main content widget injected cleanly above the Claude chat input box. */
 const ContentApp: React.FC = () => {
   const { tokens, todayTotal, contextLimit } = useTokenTracker();
   const { stats } = useMessageTracker();
@@ -46,13 +46,18 @@ const ContentApp: React.FC = () => {
 
   return (
     <>
-      <div className="flex items-center justify-between w-full border-t border-white/[0.06] pt-2 pb-1.5 px-4 text-gray-400 text-[11px] font-sans transition-all select-none">
+      <div
+        className="flex items-center justify-between w-full rounded-xl border border-white/[0.08] backdrop-blur-md px-3.5 py-1.5 mb-2 text-gray-300 text-[11px] font-sans transition-all select-none shadow-sm"
+        style={{
+          background: 'linear-gradient(135deg, rgba(30,28,36,0.92) 0%, rgba(24,22,30,0.95) 100%)',
+        }}
+      >
         {/* Left Side: Session & Today */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 cursor-help" title={`Current chat context window: ${contextPercentage}%\n\n${DISCLAIMER_TEXT}`}>
-            <span className="font-semibold text-[9px] uppercase tracking-wider text-orange-300/70">Session</span>
+            <span className="font-semibold text-[9px] uppercase tracking-wider text-orange-300/80">Session</span>
             <span className="font-mono text-[11px] text-orange-200 font-semibold whitespace-nowrap">{stats.sessionPercentage}%</span>
-            <div className="w-48 h-1 bg-white/[0.04] rounded-full overflow-hidden border border-white/[0.04]">
+            <div className="w-32 sm:w-44 h-1 bg-white/[0.06] rounded-full overflow-hidden border border-white/[0.04]">
               <div
                 className={`h-full rounded-full transition-all duration-700 ease-out ${sessionBarColor}`}
                 style={{
@@ -66,51 +71,51 @@ const ContentApp: React.FC = () => {
           <span className="text-white/10">│</span>
 
           <div className="flex items-center gap-1 cursor-help" title={DISCLAIMER_TEXT}>
-            <span className="font-semibold text-[9px] uppercase tracking-wider text-gray-500">Today</span>
+            <span className="font-semibold text-[9px] uppercase tracking-wider text-gray-400">Today</span>
             <span className="font-mono text-[11px] text-orange-400 font-medium whitespace-nowrap">{todayTotal.toLocaleString()}</span>
           </div>
         </div>
 
         {/* Center: Actions */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); setIsOptimizerOpen(true); }}
-            className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
+            className="p-1 hover:bg-orange-500/15 rounded-md transition-colors text-gray-400 hover:text-orange-300 group relative cursor-pointer"
             title="Optimize Prompt"
           >
-            <Sparkles size={12} />
+            <Sparkles size={13} />
           </button>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleExport(); }}
-            className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
+            className="p-1 hover:bg-orange-500/15 rounded-md transition-colors text-gray-400 hover:text-orange-300 group relative cursor-pointer"
             title="Export Markdown"
           >
-            <Download size={12} />
+            <Download size={13} />
           </button>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleOpenSettings(); }}
-            className="p-1 hover:bg-orange-500/10 rounded transition-colors text-gray-500 hover:text-orange-300 group relative cursor-pointer"
+            className="p-1 hover:bg-orange-500/15 rounded-md transition-colors text-gray-400 hover:text-orange-300 group relative cursor-pointer"
             title="Settings"
           >
-            <Settings size={12} />
+            <Settings size={13} />
           </button>
         </div>
 
         {/* Right Side: Chat Capacity & Reset Timer */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1" title="Remaining messages in this chat before hitting context window limit">
-            <span className="text-gray-500 font-medium">Chat Left:</span>
-            <span className="font-mono text-gray-400 font-semibold">{chatMessagesLeft}</span>
+            <span className="text-gray-400 font-medium">Chat Left:</span>
+            <span className="font-mono text-gray-200 font-semibold">{chatMessagesLeft}</span>
           </div>
 
           <span className="text-white/10">│</span>
 
           <div className="flex items-center gap-1" title="Time until rate limit usage resets">
-            <span className="text-gray-500 font-medium">Reset:</span>
-            <span className="font-mono text-gray-400">{stats.resetTime}</span>
+            <span className="text-gray-400 font-medium">Reset:</span>
+            <span className="font-mono text-gray-200">{stats.resetTime}</span>
           </div>
         </div>
       </div>
