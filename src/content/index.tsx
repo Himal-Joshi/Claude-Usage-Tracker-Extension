@@ -6,24 +6,19 @@ import HeaderStatsApp from './HeaderStatsApp';
 import { isContextValid, dedupeByAncestor } from '../utils/chromeHelpers';
 import {
   USER_MESSAGE_SELECTOR_STRING,
-  ASSISTANT_MESSAGE_SELECTOR_STRING,
   ALL_MESSAGE_SELECTORS,
-  CONVERSATION_TURN_SELECTORS,
-  classifyMessageRole,
 } from '../utils/domConstants';
 import {
   RECORD_DEBOUNCE_MS,
   RECENT_INPUT_THRESHOLD_MS,
   detectModel,
 } from '../utils/constants';
-import { extractMessageContent } from '../utils/domParser';
 import {
   findSidebar,
   findRecentsHeader,
   getCleanChatTitle,
   findChatTitleElement,
   findChatBoxContainer,
-  findToolbarElement,
   findChatScrollContainer,
   isOutsideConversation,
   collectChatMessages,
@@ -35,21 +30,27 @@ import './index.css';
 // ---------------------------------------------------------------------------
 
 function injectApp() {
-  if (document.getElementById('claude-usage-tracker-root')) return;
-
   const chatBox = findChatBoxContainer();
-  if (!chatBox) return;
+  if (!chatBox || !chatBox.parentElement) {
+    const orphaned = document.getElementById('claude-usage-tracker-root');
+    if (orphaned) orphaned.remove();
+    return;
+  }
+
+  const existingRoot = document.getElementById('claude-usage-tracker-root');
+  if (existingRoot) {
+    if (existingRoot.nextElementSibling !== chatBox) {
+      chatBox.insertAdjacentElement('beforebegin', existingRoot);
+    }
+    return;
+  }
 
   const rootElement = document.createElement('div');
   rootElement.id = 'claude-usage-tracker-root';
   rootElement.className = 'w-full pointer-events-auto';
 
-  const toolbar = findToolbarElement(chatBox);
-  if (toolbar) {
-    chatBox.insertBefore(rootElement, toolbar);
-  } else {
-    chatBox.appendChild(rootElement);
-  }
+  // Inject cleanly ABOVE the chat box so it never collides with internal controls (+, Chat, Cowork, model picker)
+  chatBox.insertAdjacentElement('beforebegin', rootElement);
 
   const root = createRoot(rootElement);
   root.render(<ContentApp />);
@@ -384,7 +385,7 @@ document.addEventListener(
 );
 
 const observer = new MutationObserver(() => {
-  if (!document.getElementById('claude-usage-tracker-root')) injectApp();
+  injectApp();
   if (!document.getElementById('claude-usage-tracker-sidebar-root')) injectSidebar();
   if (!document.getElementById('claude-usage-tracker-header-root')) injectHeaderStats();
   checkMessageSending();
